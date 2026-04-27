@@ -1,0 +1,735 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Allure Alchemy production stack on AWS using ECS Fargate, an Application Load Balancer,
+  and Amazon RDS for PostgreSQL.
+
+Parameters:
+  AppName:
+    Type: String
+    Default: allure-alchemy
+  EnvironmentName:
+    Type: String
+    Default: prod
+  BaseUrl:
+    Type: String
+    Description: Public base URL for the storefront, for example https://store.example.com
+  SiteName:
+    Type: String
+    Default: Allure Alchemy
+  ImageUri:
+    Type: String
+    Description: Full ECR image URI, for example 123456789012.dkr.ecr.ap-south-1.amazonaws.com/allure-alchemy:prod-001
+  AcmCertificateArn:
+    Type: String
+    Default: ""
+    Description: Optional ACM certificate ARN. Leave blank to expose HTTP only.
+  VpcCidr:
+    Type: String
+    Default: 10.42.0.0/16
+  PublicSubnetOneCidr:
+    Type: String
+    Default: 10.42.0.0/24
+  PublicSubnetTwoCidr:
+    Type: String
+    Default: 10.42.1.0/24
+  PrivateSubnetOneCidr:
+    Type: String
+    Default: 10.42.10.0/24
+  PrivateSubnetTwoCidr:
+    Type: String
+    Default: 10.42.11.0/24
+  AvailabilityZoneOne:
+    Type: AWS::EC2::AvailabilityZone::Name
+  AvailabilityZoneTwo:
+    Type: AWS::EC2::AvailabilityZone::Name
+  ContainerPort:
+    Type: Number
+    Default: 8780
+  HealthCheckPath:
+    Type: String
+    Default: /readyz
+  TaskCpu:
+    Type: String
+    Default: "1024"
+    AllowedValues:
+      - "256"
+      - "512"
+      - "1024"
+      - "2048"
+      - "4096"
+  TaskMemory:
+    Type: String
+    Default: "2048"
+  DesiredTaskCount:
+    Type: Number
+    Default: 2
+  MinTaskCount:
+    Type: Number
+    Default: 2
+  MaxTaskCount:
+    Type: Number
+    Default: 10
+  DbName:
+    Type: String
+    Default: allurealchemy
+  DbUsername:
+    Type: String
+    Default: app_user
+  DbInstanceClass:
+    Type: String
+    Default: db.t4g.medium
+  DbAllocatedStorage:
+    Type: Number
+    Default: 100
+  DbMaxAllocatedStorage:
+    Type: Number
+    Default: 500
+  DbMultiAZ:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+  EnableManualCheckout:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+  StoreCurrency:
+    Type: String
+    Default: INR
+  StoreDefaultCountry:
+    Type: String
+    Default: India
+  ShippingFeeInr:
+    Type: Number
+    Default: 350
+  FreeShippingThresholdInr:
+    Type: Number
+    Default: 12500
+  OrderPrefix:
+    Type: String
+    Default: ALR
+  MaxRequestBodyBytes:
+    Type: Number
+    Default: 262144
+  StaticCacheMaxAgeSeconds:
+    Type: Number
+    Default: 86400
+  WebConcurrency:
+    Type: Number
+    Default: 4
+  WebThreads:
+    Type: Number
+    Default: 4
+  WebTimeoutSeconds:
+    Type: Number
+    Default: 60
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+  RazorpayKeyIdSecretArn:
+    Type: String
+    Default: ""
+    Description: Optional Secrets Manager secret ARN that stores the Razorpay key id as a plain string.
+  RazorpayKeySecretSecretArn:
+    Type: String
+    Default: ""
+    Description: Optional Secrets Manager secret ARN that stores the Razorpay key secret as a plain string.
+  RazorpayWebhookSecretSecretArn:
+    Type: String
+    Default: ""
+    Description: Optional Secrets Manager secret ARN that stores the Razorpay webhook secret as a plain string.
+
+Conditions:
+  HasAcmCertificate: !Not [!Equals [!Ref AcmCertificateArn, ""]]
+  NoAcmCertificate: !Equals [!Ref AcmCertificateArn, ""]
+  EnableMultiAzDatabase: !Equals [!Ref DbMultiAZ, "true"]
+  HasRazorpayKeyIdSecret: !Not [!Equals [!Ref RazorpayKeyIdSecretArn, ""]]
+  HasRazorpayKeySecretSecret: !Not [!Equals [!Ref RazorpayKeySecretSecretArn, ""]]
+  HasRazorpayWebhookSecretSecret: !Not [!Equals [!Ref RazorpayWebhookSecretSecretArn, ""]]
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${AppName}-${EnvironmentName}-vpc
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${AppName}-${EnvironmentName}-igw
+
+  VpcGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnetOne:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnetOneCidr
+      AvailabilityZone: !Ref AvailabilityZoneOne
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${AppName}-${EnvironmentName}-public-a
+
+  PublicSubnetTwo:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnetTwoCidr
+      AvailabilityZone: !Ref AvailabilityZoneTwo
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${AppName}-${EnvironmentName}-public-b
+
+  PrivateSubnetOne:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnetOneCidr
+      AvailabilityZone: !Ref AvailabilityZoneOne
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${AppName}-${EnvironmentName}-private-a
+
+  PrivateSubnetTwo:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnetTwoCidr
+      AvailabilityZone: !Ref AvailabilityZoneTwo
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${AppName}-${EnvironmentName}-private-b
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${AppName}-${EnvironmentName}-public-rt
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetOneRouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetOne
+
+  PublicSubnetTwoRouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetTwo
+
+  NatElasticIpOne:
+    Type: AWS::EC2::EIP
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  NatElasticIpTwo:
+    Type: AWS::EC2::EIP
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  NatGatewayOne:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatElasticIpOne.AllocationId
+      SubnetId: !Ref PublicSubnetOne
+      Tags:
+        - Key: Name
+          Value: !Sub ${AppName}-${EnvironmentName}-nat-a
+
+  NatGatewayTwo:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatElasticIpTwo.AllocationId
+      SubnetId: !Ref PublicSubnetTwo
+      Tags:
+        - Key: Name
+          Value: !Sub ${AppName}-${EnvironmentName}-nat-b
+
+  PrivateRouteTableOne:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${AppName}-${EnvironmentName}-private-rt-a
+
+  PrivateRouteTableTwo:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${AppName}-${EnvironmentName}-private-rt-b
+
+  PrivateRouteOne:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableOne
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayOne
+
+  PrivateRouteTwo:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableTwo
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayTwo
+
+  PrivateSubnetOneRouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableOne
+      SubnetId: !Ref PrivateSubnetOne
+
+  PrivateSubnetTwoRouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableTwo
+      SubnetId: !Ref PrivateSubnetTwo
+
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Public ingress for the storefront ALB
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  ServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Internal traffic for the ECS service tasks
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref ContainerPort
+          ToPort: !Ref ContainerPort
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: PostgreSQL access from ECS tasks
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref ServiceSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      Type: application
+      SecurityGroups:
+        - !Ref LoadBalancerSecurityGroup
+      Subnets:
+        - !Ref PublicSubnetOne
+        - !Ref PublicSubnetTwo
+      Tags:
+        - Key: Name
+          Value: !Sub ${AppName}-${EnvironmentName}-alb
+
+  ApplicationTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Port: !Ref ContainerPort
+      Protocol: HTTP
+      TargetType: ip
+      VpcId: !Ref VPC
+      HealthCheckEnabled: true
+      HealthCheckPath: !Ref HealthCheckPath
+      HealthCheckProtocol: HTTP
+      Matcher:
+        HttpCode: 200
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: "30"
+
+  HttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Condition: NoAcmCertificate
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ApplicationTargetGroup
+
+  HttpRedirectListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Condition: HasAcmCertificate
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: "443"
+            Host: "#{host}"
+            Path: "/#{path}"
+            Query: "#{query}"
+            StatusCode: HTTP_301
+
+  HttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Condition: HasAcmCertificate
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref AcmCertificateArn
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ApplicationTargetGroup
+
+  DatabaseCredentialsSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub ${AppName}/${EnvironmentName}/database
+      Description: !Sub Database password for ${AppName} ${EnvironmentName}
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username":"${DbUsername}"}'
+        GenerateStringKey: password
+        PasswordLength: 30
+        ExcludePunctuation: true
+
+  DatabaseSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Private subnets for the storefront database
+      SubnetIds:
+        - !Ref PrivateSubnetOne
+        - !Ref PrivateSubnetTwo
+      Tags:
+        - Key: Name
+          Value: !Sub ${AppName}-${EnvironmentName}-db-subnets
+
+  Database:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      AllocatedStorage: !Ref DbAllocatedStorage
+      MaxAllocatedStorage: !Ref DbMaxAllocatedStorage
+      BackupRetentionPeriod: 7
+      CopyTagsToSnapshot: true
+      DBInstanceClass: !Ref DbInstanceClass
+      DBName: !Ref DbName
+      DBSubnetGroupName: !Ref DatabaseSubnetGroup
+      DeletionProtection: true
+      Engine: postgres
+      MasterUsername: !Ref DbUsername
+      MasterUserPassword: !Sub "{{resolve:secretsmanager:${DatabaseCredentialsSecret}:SecretString:password}}"
+      MultiAZ: !If [EnableMultiAzDatabase, true, false]
+      PubliclyAccessible: false
+      StorageEncrypted: true
+      StorageType: gp3
+      VPCSecurityGroups:
+        - !Ref DatabaseSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub ${AppName}-${EnvironmentName}-postgres
+
+  EcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${AppName}-${EnvironmentName}-cluster
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+      Tags:
+        - Key: Name
+          Value: !Sub ${AppName}-${EnvironmentName}-cluster
+
+  AppLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /ecs/${AppName}/${EnvironmentName}/web
+      RetentionInDays: !Ref LogRetentionDays
+
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AppName}-${EnvironmentName}-task-execution
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: read-runtime-secrets
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - !Ref DatabaseCredentialsSecret
+                  - !If
+                    - HasRazorpayKeyIdSecret
+                    - !Ref RazorpayKeyIdSecretArn
+                    - !Ref AWS::NoValue
+                  - !If
+                    - HasRazorpayKeySecretSecret
+                    - !Ref RazorpayKeySecretSecretArn
+                    - !Ref AWS::NoValue
+                  - !If
+                    - HasRazorpayWebhookSecretSecret
+                    - !Ref RazorpayWebhookSecretSecretArn
+                    - !Ref AWS::NoValue
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    kms:ViaService: !Sub secretsmanager.${AWS::Region}.amazonaws.com
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AppName}-${EnvironmentName}-task
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${AppName}-${EnvironmentName}-web
+      Cpu: !Ref TaskCpu
+      Memory: !Ref TaskMemory
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      RuntimePlatform:
+        CpuArchitecture: X86_64
+        OperatingSystemFamily: LINUX
+      ContainerDefinitions:
+        - Name: web
+          Image: !Ref ImageUri
+          Essential: true
+          PortMappings:
+            - ContainerPort: !Ref ContainerPort
+              HostPort: !Ref ContainerPort
+              Protocol: tcp
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref AppLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: web
+          Environment:
+            - Name: APP_ENV
+              Value: production
+            - Name: HOST
+              Value: 0.0.0.0
+            - Name: PORT
+              Value: !Sub "${ContainerPort}"
+            - Name: SITE_NAME
+              Value: !Ref SiteName
+            - Name: BASE_URL
+              Value: !Ref BaseUrl
+            - Name: STORE_CURRENCY
+              Value: !Ref StoreCurrency
+            - Name: STORE_DEFAULT_COUNTRY
+              Value: !Ref StoreDefaultCountry
+            - Name: SHIPPING_FEE_INR
+              Value: !Sub "${ShippingFeeInr}"
+            - Name: FREE_SHIPPING_THRESHOLD_INR
+              Value: !Sub "${FreeShippingThresholdInr}"
+            - Name: ORDER_PREFIX
+              Value: !Ref OrderPrefix
+            - Name: ENABLE_MANUAL_CHECKOUT
+              Value: !Ref EnableManualCheckout
+            - Name: MAX_REQUEST_BODY_BYTES
+              Value: !Sub "${MaxRequestBodyBytes}"
+            - Name: STATIC_CACHE_MAX_AGE_SECONDS
+              Value: !Sub "${StaticCacheMaxAgeSeconds}"
+            - Name: WEB_CONCURRENCY
+              Value: !Sub "${WebConcurrency}"
+            - Name: WEB_THREADS
+              Value: !Sub "${WebThreads}"
+            - Name: WEB_TIMEOUT_SECONDS
+              Value: !Sub "${WebTimeoutSeconds}"
+            - Name: LOG_LEVEL
+              Value: info
+            - Name: DB_HOST
+              Value: !GetAtt Database.Endpoint.Address
+            - Name: DB_PORT
+              Value: !Join ["", [!GetAtt Database.Endpoint.Port, ""]]
+            - Name: DB_NAME
+              Value: !Ref DbName
+            - Name: DB_USER
+              Value: !Ref DbUsername
+            - Name: DB_SSLMODE
+              Value: require
+          Secrets:
+            - Name: DB_PASSWORD
+              ValueFrom: !Sub "${DatabaseCredentialsSecret}:password::"
+            - !If
+              - HasRazorpayKeyIdSecret
+              - Name: RAZORPAY_KEY_ID
+                ValueFrom: !Ref RazorpayKeyIdSecretArn
+              - !Ref AWS::NoValue
+            - !If
+              - HasRazorpayKeySecretSecret
+              - Name: RAZORPAY_KEY_SECRET
+                ValueFrom: !Ref RazorpayKeySecretSecretArn
+              - !Ref AWS::NoValue
+            - !If
+              - HasRazorpayWebhookSecretSecret
+              - Name: RAZORPAY_WEBHOOK_SECRET
+                ValueFrom: !Ref RazorpayWebhookSecretSecretArn
+              - !Ref AWS::NoValue
+
+  EcsService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - Database
+    Properties:
+      ServiceName: !Sub ${AppName}-${EnvironmentName}-service
+      Cluster: !Ref EcsCluster
+      LaunchType: FARGATE
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: !Ref DesiredTaskCount
+      EnableExecuteCommand: true
+      HealthCheckGracePeriodSeconds: 90
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      LoadBalancers:
+        - TargetGroupArn: !Ref ApplicationTargetGroup
+          ContainerName: web
+          ContainerPort: !Ref ContainerPort
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+            - !Ref ServiceSecurityGroup
+          Subnets:
+            - !Ref PrivateSubnetOne
+            - !Ref PrivateSubnetTwo
+      PlatformVersion: LATEST
+      PropagateTags: SERVICE
+      Tags:
+        - Key: Name
+          Value: !Sub ${AppName}-${EnvironmentName}-service
+
+  ServiceScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MinCapacity: !Ref MinTaskCount
+      MaxCapacity: !Ref MaxTaskCount
+      ResourceId: !Sub service/${EcsCluster}/${AppName}-${EnvironmentName}-service
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  CpuScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub ${AppName}-${EnvironmentName}-cpu-scaling
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ServiceScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        TargetValue: 60
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 30
+
+  MemoryScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub ${AppName}-${EnvironmentName}-memory-scaling
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ServiceScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageMemoryUtilization
+        TargetValue: 70
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 30
+
+Outputs:
+  LoadBalancerDnsName:
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+  PublicUrl:
+    Value: !If
+      - HasAcmCertificate
+      - !Join ["", ["https://", !GetAtt ApplicationLoadBalancer.DNSName]]
+      - !Join ["", ["http://", !GetAtt ApplicationLoadBalancer.DNSName]]
+  ClusterName:
+    Value: !Ref EcsCluster
+  ServiceName:
+    Value: !GetAtt EcsService.Name
+  DatabaseEndpoint:
+    Value: !GetAtt Database.Endpoint.Address
+  DatabasePort:
+    Value: !GetAtt Database.Endpoint.Port
+  DatabasePasswordSecretArn:
+    Value: !Ref DatabaseCredentialsSecret

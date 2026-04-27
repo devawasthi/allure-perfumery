@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="empty-state empty-state--wide">
+    <p class="section-kicker">404</p>
+    <h1>That page drifted out of the scent trail.</h1>
+    <p>The path <code>{{ missing_path }}</code> does not exist right now.</p>
+    <a class="button" href="/">Return home</a>
+  </section>
+{% endblock %}

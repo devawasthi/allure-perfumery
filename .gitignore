@@ -1,0 +1,37 @@
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local environment/secrets
+.env
+.env.local
+.env.*.local
+
+# Local SQLite development data
+data/*.sqlite3
+data/*.sqlite3-*
+
+# Node dependencies/build output
+node_modules/
+allure-perfumery-frontend/
+allure-perfumery-backend/node_modules/
+allure-perfumery-frontend/node_modules/
+allure-perfumery-frontend/build/
+
+# Logs and temporary files
+*.log
+tmp/
+temp/

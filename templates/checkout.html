@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="utility-hero">
+    <p class="section-kicker">Checkout</p>
+    <h1>Complete your order</h1>
+  </section>
+
+  <section
+    class="commerce-shell checkout-shell"
+    data-checkout-root
+    data-razorpay-enabled="{{ 'true' if payment.razorpay_enabled else 'false' }}"
+    data-razorpay-key="{{ payment.razorpay_key_id }}"
+    data-store-name="{{ site_name }}"
+    data-store-logo="{{ site_logo }}"
+  >
+    <div class="commerce-shell__main">
+      <form class="checkout-form" data-checkout-form>
+        <div class="checkout-form__grid">
+          <label>
+            Full name
+            <input
+              type="text"
+              name="customer_name"
+              placeholder="Your full name"
+              autocomplete="name"
+              minlength="2"
+              required
+            />
+          </label>
+          <label>
+            Email
+            <input
+              type="email"
+              name="email"
+              placeholder="name@example.com"
+              autocomplete="email"
+              inputmode="email"
+              maxlength="120"
+              required
+            />
+          </label>
+          <label>
+            Phone
+            <input
+              type="tel"
+              name="phone"
+              placeholder="10 digit phone number"
+              autocomplete="tel"
+              inputmode="numeric"
+              pattern="[0-9]{10,15}"
+              minlength="10"
+              maxlength="15"
+              required
+            />
+          </label>
+          <label>
+            Payment method
+            <select name="payment_method" required>
+              {% if payment.razorpay_enabled %}
+                <option value="Razorpay">Razorpay</option>
+              {% endif %}
+              {% if payment.manual_checkout_enabled %}
+                <option value="Cash on Delivery">Cash on Delivery</option>
+                <option value="Bank Transfer">Bank Transfer</option>
+              {% endif %}
+            </select>
+          </label>
+        </div>
+
+        <div class="checkout-note" data-checkout-method-note>
+          {% if payment.razorpay_enabled %}
+            Razorpay will open a secure checkout for cards, UPI, wallets, and netbanking.
+          {% else %}
+            Razorpay is not configured yet on this deployment, so only manual checkout is currently available.
+          {% endif %}
+        </div>
+
+        <label>
+          Shipping address line 1
+          <input
+            type="text"
+            name="shipping_line1"
+            placeholder="House number, street, locality"
+            autocomplete="address-line1"
+            minlength="8"
+            required
+          />
+        </label>
+
+        <label>
+          Shipping address line 2
+          <input type="text" name="shipping_line2" placeholder="Apartment, landmark, suite (optional)" />
+        </label>
+
+        <div class="checkout-form__grid">
+          <label>
+            City
+            <input type="text" name="city" autocomplete="address-level2" minlength="2" required />
+          </label>
+          <label>
+            State
+            <input type="text" name="state" autocomplete="address-level1" minlength="2" required />
+          </label>
+          <label>
+            Postal code
+            <input
+              type="text"
+              name="postal_code"
+              autocomplete="postal-code"
+              pattern="[A-Za-z0-9 -]{5,12}"
+              minlength="5"
+              maxlength="12"
+              required
+            />
+          </label>
+          <label>
+            Country
+            <input type="text" name="country" value="India" autocomplete="country-name" minlength="2" required />
+          </label>
+        </div>
+
+        <label>
+          Delivery notes
+          <textarea name="delivery_notes" rows="4" placeholder="Leave a note for the packing or delivery team"></textarea>
+        </label>
+
+        <div class="checkout-form__actions">
+          <button type="submit" class="button button--full" data-checkout-submit>
+            Continue to payment
+          </button>
+          <p class="checkout-form__status" data-checkout-status></p>
+        </div>
+      </form>
+    </div>
+
+    <aside class="commerce-shell__sidebar">
+      <div class="summary-card">
+        <p class="section-kicker">Live Summary</p>
+        <div class="summary-card__lines" data-checkout-items></div>
+        <div class="summary-card__lines">
+          <div><span>Subtotal</span><strong data-checkout-subtotal>{{ 0|money }}</strong></div>
+          <div><span>Shipping</span><strong data-checkout-shipping>{{ 350|money }}</strong></div>
+          <div class="summary-card__total"><span>Total</span><strong data-checkout-total>{{ 350|money }}</strong></div>
+        </div>
+      </div>
+    </aside>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  {% if payment.razorpay_enabled %}
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  {% endif %}
+{% endblock %}

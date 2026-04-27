@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="utility-hero">
+    <p class="section-kicker">
+      {% if order.payment_status == "paid" %}
+        Order Confirmed
+      {% else %}
+        Order Received
+      {% endif %}
+    </p>
+    <h1>{{ order.order_number }}</h1>
+    <p>
+      Your order has been stored successfully. This page is backed by the same SQLite order table
+      used during checkout and now includes payment state as well.
+    </p>
+  </section>
+
+  <section class="order-layout">
+    <article class="order-card reveal" data-reveal>
+      <p class="section-kicker">Customer</p>
+      <h2>{{ order.customer_name }}</h2>
+      <div class="order-card__list">
+        <div><span>Email</span><strong>{{ order.email }}</strong></div>
+        <div><span>Phone</span><strong>{{ order.phone }}</strong></div>
+        <div><span>Status</span><strong>{{ order.status }}</strong></div>
+        <div><span>Payment</span><strong>{{ order.payment_method }}</strong></div>
+        <div><span>Payment Status</span><strong>{{ order.payment_status|titleize_enum }}</strong></div>
+        {% if order.gateway_payment_id %}
+          <div><span>Gateway Payment</span><strong>{{ order.gateway_payment_id }}</strong></div>
+        {% endif %}
+      </div>
+    </article>
+
+    <article class="order-card reveal" data-reveal>
+      <p class="section-kicker">Shipping</p>
+      <h2>Delivery Address</h2>
+      <p class="order-card__address">
+        {{ order.shipping_line1 }}{% if order.shipping_line2 %}, {{ order.shipping_line2 }}{% endif %},
+        {{ order.city }}, {{ order.state }} {{ order.postal_code }}, {{ order.country }}
+      </p>
+      {% if order.delivery_notes %}
+        <p class="order-card__notes"><strong>Note:</strong> {{ order.delivery_notes }}</p>
+      {% endif %}
+    </article>
+  </section>
+
+  <section class="order-card order-card--full reveal" data-reveal>
+    <p class="section-kicker">Items</p>
+    <div class="order-line-list">
+      {% for item in order["items"] %}
+        <div class="order-line">
+          <div>
+            <strong>{{ item.brand }} {{ item.fragrance_name }}</strong>
+            <span>{{ item.size_label }} &middot; {{ item.sale_type|titleize_enum }}</span>
+          </div>
+          <div>
+            <strong>{{ item.line_total_inr|money }}</strong>
+            <span>{{ item.quantity }} x {{ item.price_inr|money }}</span>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+    <div class="summary-card__lines order-total">
+      <div><span>Subtotal</span><strong>{{ order.subtotal_inr|money }}</strong></div>
+      <div><span>Shipping</span><strong>{{ order.shipping_inr|money }}</strong></div>
+      <div class="summary-card__total"><span>Total</span><strong>{{ order.total_inr|money }}</strong></div>
+    </div>
+  </section>
+{% endblock %}

@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="catalog-hero">
+    <div>
+      <p class="section-kicker">Catalog</p>
+      <h1>The full fragrance wall, ready for retail, decants, and partials.</h1>
+      <p>
+        Filter by brand, gender, sale type, collection, or fragrance family to move through the
+        catalog like a serious perfume buyer rather than a casual browser.
+      </p>
+    </div>
+    <div class="catalog-hero__stats">
+      <div><strong>{{ catalog_items|length }}</strong><span>results</span></div>
+      <div><strong>{{ filters.brands|length }}</strong><span>brands</span></div>
+      <div><strong>{{ filters.sale_types|length }}</strong><span>formats</span></div>
+    </div>
+  </section>
+
+  <section class="catalog-layout">
+    <aside class="filter-panel reveal" data-reveal>
+      <form action="/catalog" method="get" class="filter-form">
+        <label>
+          Search
+          <input type="search" name="search" value="{{ active_filters.search }}" placeholder="Search by fragrance or brand" />
+        </label>
+
+        <label>
+          Collection
+          <select name="collection_type">
+            <option value="">All collections</option>
+            {% for option in filters.collections %}
+              <option value="{{ option }}" {% if active_filters.collection_type == option %}selected{% endif %}>
+                {{ option|title }}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label>
+          Gender
+          <select name="gender">
+            <option value="">All wearers</option>
+            {% for option in filters.genders %}
+              <option value="{{ option }}" {% if active_filters.gender == option %}selected{% endif %}>
+                {{ option|titleize_enum }}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label>
+          Brand
+          <select name="brand">
+            <option value="">All brands</option>
+            {% for option in filters.brands %}
+              <option value="{{ option }}" {% if active_filters.brand == option %}selected{% endif %}>
+                {{ option }}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label>
+          Family
+          <select name="family">
+            <option value="">All families</option>
+            {% for option in filters.families %}
+              <option value="{{ option }}" {% if active_filters.family == option %}selected{% endif %}>
+                {{ option|title }}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label>
+          Format
+          <select name="sale_type">
+            <option value="">All formats</option>
+            {% for option in filters.sale_types %}
+              <option value="{{ option }}" {% if active_filters.sale_type == option %}selected{% endif %}>
+                {{ option|title }}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <div class="filter-form__actions">
+          <button type="submit" class="button">Apply filters</button>
+          <a href="/catalog" class="button button--ghost">Reset</a>
+        </div>
+      </form>
+    </aside>
+
+    <div>
+      <div class="catalog-toolbar">
+        <p>
+          Showing <strong>{{ catalog_items|length }}</strong> catalog entries
+          {% if active_filters.search %}
+            for "{{ active_filters.search }}"
+          {% endif %}
+        </p>
+      </div>
+
+      {% if catalog_items %}
+        <div class="product-grid">
+          {% for item in catalog_items %}
+            {% include "_product_card.html" %}
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state reveal" data-reveal>
+          <h2>No fragrances matched that filter combination.</h2>
+          <p>Try broadening the brand, format, or gender filters to reopen the catalog.</p>
+          <a class="button" href="/catalog">Return to full catalog</a>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+{% endblock %}

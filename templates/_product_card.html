@@ -1,0 +1,53 @@
+<article
+  class="product-card reveal"
+  data-reveal
+  style="--card-from: {{ item.accent_from }}; --card-to: {{ item.accent_to }};"
+>
+  <a class="product-card__visual" href="/fragrances/{{ item.slug }}" aria-label="{{ item.brand }} {{ item.name }}">
+    <span class="product-card__pill">{{ item.collection_type|title }}</span>
+    <img
+      class="product-card__image"
+      src="{{ item.image_url }}"
+      alt="{{ item.image_alt }}"
+      loading="lazy"
+    />
+    <div class="product-card__bottle">
+      <span class="product-card__brand">{{ item.brand }}</span>
+      <strong>{{ item.name }}</strong>
+      <small>{{ item.family|title }}</small>
+    </div>
+  </a>
+  <div class="product-card__body">
+    <p class="section-kicker">{{ item.brand }}</p>
+    <h3><a href="/fragrances/{{ item.slug }}">{{ item.name }}</a></h3>
+    <p class="product-card__meta">
+      {{ item.gender|titleize_enum }} &middot; {{ item.concentration }} &middot; {{ item.origin }}
+    </p>
+    <p class="product-card__copy">{{ item.signature }}</p>
+    <div class="product-card__types">
+      {% for type in item.sale_types %}
+        <span>{{ type|titleize_enum }}</span>
+      {% endfor %}
+    </div>
+    <div class="product-card__footer">
+      <div>
+        <small>From</small>
+        <strong>{{ item.starting_price|money }}</strong>
+      </div>
+      <div class="product-card__actions">
+        {% if item.quick_add_variant %}
+          <button
+            type="button"
+            class="button button--ghost"
+            data-add-to-cart
+            data-variant-id="{{ item.quick_add_variant.id }}"
+            data-item-label="{{ item.brand }} {{ item.name }} {{ item.quick_add_variant.size_label }}"
+          >
+            Quick add
+          </button>
+        {% endif %}
+        <a class="button" href="/fragrances/{{ item.slug }}">View options</a>
+      </div>
+    </div>
+  </div>
+</article>

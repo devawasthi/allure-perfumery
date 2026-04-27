@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="product-hero">
+    <div
+      class="product-hero__visual reveal"
+      data-reveal
+      style="--card-from: {{ fragrance.accent_from }}; --card-to: {{ fragrance.accent_to }};"
+    >
+      <span class="product-hero__badge">{{ fragrance.collection_type|title }} Selection</span>
+      <img
+        class="product-hero__image"
+        src="{{ fragrance.image_url }}"
+        alt="{{ fragrance.image_alt }}"
+        loading="eager"
+      />
+      <div class="product-hero__bottle">
+        <span>{{ fragrance.brand }}</span>
+        <strong>{{ fragrance.name }}</strong>
+        <small>{{ fragrance.concentration }}</small>
+      </div>
+    </div>
+
+    <div class="product-hero__copy">
+      <p class="section-kicker">{{ fragrance.brand }}</p>
+      <h1>{{ fragrance.name }}</h1>
+      <p class="product-hero__meta">
+        {{ fragrance.gender|titleize_enum }} &middot; {{ fragrance.family|title }} &middot; {{ fragrance.origin }}
+      </p>
+      <p class="product-hero__description">{{ fragrance.description }}</p>
+      <div class="product-hero__signature">
+        <strong>Signature mood</strong>
+        <span>{{ fragrance.signature }}</span>
+      </div>
+      <div class="product-hero__chips">
+        {% for type in fragrance.sale_types %}
+          <span>{{ type|titleize_enum }}</span>
+        {% endfor %}
+      </div>
+      <div class="product-hero__pricing">
+        <small>Starts from</small>
+        <strong>{{ fragrance.starting_price|money }}</strong>
+      </div>
+    </div>
+  </section>
+
+  <section class="notes-grid">
+    <article class="note-card reveal" data-reveal>
+      <p class="section-kicker">Top Notes</p>
+      <div class="note-tags">
+        {% for note in fragrance.top_notes %}
+          <span>{{ note }}</span>
+        {% endfor %}
+      </div>
+    </article>
+    <article class="note-card reveal" data-reveal>
+      <p class="section-kicker">Heart Notes</p>
+      <div class="note-tags">
+        {% for note in fragrance.heart_notes %}
+          <span>{{ note }}</span>
+        {% endfor %}
+      </div>
+    </article>
+    <article class="note-card reveal" data-reveal>
+      <p class="section-kicker">Base Notes</p>
+      <div class="note-tags">
+        {% for note in fragrance.base_notes %}
+          <span>{{ note }}</span>
+        {% endfor %}
+      </div>
+    </article>
+  </section>
+
+  <section class="offer-section">
+    <div class="section-heading">
+      <p class="section-kicker">Available Formats</p>
+      <h2>Choose the way you want to own {{ fragrance.name }}.</h2>
+    </div>
+    <div class="offer-grid">
+      {% for variant in fragrance.variants %}
+        <article class="offer-card reveal" data-reveal>
+          <span class="offer-card__badge">{{ variant.badge }}</span>
+          <h3>{{ variant.size_label }}</h3>
+          <p>{{ variant.statement }}</p>
+          <div class="offer-card__row">
+            <strong>{{ variant.price_inr|money }}</strong>
+            <span>{{ variant.stock_units }} in stock</span>
+          </div>
+          <button
+            type="button"
+            class="button"
+            data-add-to-cart
+            data-variant-id="{{ variant.id }}"
+            data-item-label="{{ fragrance.brand }} {{ fragrance.name }} {{ variant.size_label }}"
+          >
+            Add to cart
+          </button>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+
+  {% if related_items %}
+    <section class="product-section">
+      <div class="section-heading">
+        <p class="section-kicker">Related Signatures</p>
+        <h2>Keep the same energy, explore a nearby profile.</h2>
+      </div>
+      <div class="product-grid">
+        {% for item in related_items %}
+          {% include "_product_card.html" %}
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+{% endblock %}

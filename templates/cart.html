@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="utility-hero">
+    <p class="section-kicker">Cart</p>
+    <h1>Review your cart</h1>
+  </section>
+
+  <section class="commerce-shell" data-cart-root>
+    <div class="commerce-shell__main">
+      <div class="empty-state is-hidden" data-cart-empty>
+        <h2>Your cart is empty right now.</h2>
+        <p>Start with decants for discovery or jump into retail bottles when you already know your signature.</p>
+        <a class="button" href="/catalog">Browse catalog</a>
+      </div>
+      <div class="cart-list" data-cart-items></div>
+    </div>
+    <aside class="commerce-shell__sidebar">
+      <div class="summary-card">
+        <p class="section-kicker">Order Summary</p>
+        <div class="summary-card__lines">
+          <div><span>Subtotal</span><strong data-cart-subtotal>{{ 0|money }}</strong></div>
+          <div><span>Shipping</span><strong data-cart-shipping>{{ 350|money }}</strong></div>
+          <div class="summary-card__total"><span>Total</span><strong data-cart-total>{{ 350|money }}</strong></div>
+        </div>
+        <a class="button button--full" href="/checkout">Proceed to checkout</a>
+      </div>
+    </aside>
+  </section>
+{% endblock %}

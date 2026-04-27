@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.DS_Store
+.env
+.git
+data/
+node_modules/
+allure-perfumery-backend/
+allure-perfumery-backend/node_modules/
+allure-perfumery-frontend/node_modules/

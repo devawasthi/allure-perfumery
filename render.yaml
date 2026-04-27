@@ -1,0 +1,65 @@
+services:
+  - type: web
+    name: allure-alchemy
+    runtime: docker
+    plan: free
+    region: singapore
+    healthCheckPath: /readyz
+    autoDeployTrigger: commit
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: SITE_NAME
+        value: Allure Alchemy
+      - key: BASE_URL
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: AUTO_SEED_CATALOG
+        value: "true"
+      - key: ENABLE_MANUAL_CHECKOUT
+        value: "true"
+      - key: STORE_CURRENCY
+        value: INR
+      - key: STORE_DEFAULT_COUNTRY
+        value: India
+      - key: SHIPPING_FEE_INR
+        value: "350"
+      - key: FREE_SHIPPING_THRESHOLD_INR
+        value: "12500"
+      - key: ORDER_PREFIX
+        value: ALR
+      - key: WEB_CONCURRENCY
+        value: "2"
+      - key: WEB_THREADS
+        value: "4"
+      - key: WEB_TIMEOUT_SECONDS
+        value: "60"
+      - key: WEB_GRACEFUL_TIMEOUT_SECONDS
+        value: "30"
+      - key: WEB_KEEPALIVE_SECONDS
+        value: "5"
+      - key: WEB_MAX_REQUESTS
+        value: "1000"
+      - key: WEB_MAX_REQUESTS_JITTER
+        value: "100"
+      - key: DATABASE_POOL_MIN_SIZE
+        value: "1"
+      - key: DATABASE_POOL_MAX_SIZE
+        value: "4"
+      - key: DATABASE_CONNECT_TIMEOUT_SECONDS
+        value: "10"
+      - key: DATABASE_STATEMENT_TIMEOUT_MS
+        value: "5000"
+      - key: MAX_REQUEST_BODY_BYTES
+        value: "262144"
+      - key: STATIC_CACHE_MAX_AGE_SECONDS
+        value: "86400"
+      - key: LOG_LEVEL
+        value: info
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ page_title }} | {{ site_name }}</title>
+    <meta
+      name="description"
+      content="Allure Alchemy brings together elite niche houses, luxury designers, decants, partials, and a real order database in one polished storefront."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="page-shell"></div>
+    <header class="site-header">
+      <div class="announcement-bar">
+        <span>Verified stock</span>
+        <span>Retail bottles, 5ml to 30ml decants, and partials</span>
+        <span>Orders stored with live inventory tracking</span>
+      </div>
+      <div class="nav-wrap">
+        <a class="brand-mark" href="/">
+          <span class="brand-mark__crest">AA</span>
+          <span>
+            <strong>{{ site_name }}</strong>
+            <small>Luxury perfume curation</small>
+          </span>
+        </a>
+        <nav class="nav-links" aria-label="Primary">
+          {% for link in nav_links %}
+            <a
+              href="{{ link.href }}"
+              class="{% if current_path == link.href or (link.href != '/' and current_path.startswith(link.href)) %}is-active{% endif %}"
+            >
+              {{ link.label }}
+            </a>
+          {% endfor %}
+        </nav>
+        <div class="nav-actions">
+          <form class="nav-search" action="/catalog" method="get">
+            <input type="search" name="search" placeholder="Search Aventus, Chanel, Roja..." />
+          </form>
+          <a class="cart-chip" href="/cart">
+            Cart
+            <span data-cart-count>0</span>
+          </a>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-grid">
+        <div>
+          <p class="section-kicker">Allure Alchemy</p>
+          <h3>A heavy luxury storefront built for serious fragrance buyers.</h3>
+          <p class="footer-copy">
+            The catalog blends niche prestige and designer icons, with retail bottles,
+            curated decants, collector partials, and proper order storage behind every purchase.
+          </p>
+        </div>
+        <div>
+          <p class="section-kicker">Featured Houses</p>
+          <div class="footer-tags">
+            {% for brand in support_brands %}
+              <span>{{ brand }}</span>
+            {% endfor %}
+          </div>
+        </div>
+        <div>
+          <p class="section-kicker">Store Metrics</p>
+          <div class="metric-stack">
+            <div><strong>{{ site_metrics.brands }}</strong> luxury brands</div>
+            <div><strong>{{ site_metrics.fragrances }}</strong> fragrances seeded</div>
+            <div><strong>{{ site_metrics.variants }}</strong> live inventory offerings</div>
+          </div>
+        </div>
+      </div>
+    </footer>
+
+    <div class="toast-stack" data-toast-stack></div>
+    <script src="/static/app.js"></script>
+    {% block scripts %}{% endblock %}
+  </body>
+</html>
+
