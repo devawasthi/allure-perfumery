@@ -100,7 +100,6 @@ main,
 .announcement-bar,
 .nav-wrap,
 .hero__content,
-.hero__metrics,
 .story-grid,
 .gender-gateway,
 .mode-grid,
@@ -192,16 +191,6 @@ main,
   font-weight: 500;
   letter-spacing: 0.08em;
   margin-left: 0.08em;
-}
-
-.brand-logo__tagline {
-  display: block;
-  color: var(--text-soft);
-  font-family: var(--font-sans);
-  font-size: 0.56rem;
-  font-weight: 500;
-  letter-spacing: 0.38em;
-  margin-left: 0.38em;
 }
 
 .nav-links {
@@ -297,7 +286,7 @@ main,
 
 .hero {
   width: min(calc(100% - 2rem), 1320px);
-  min-height: 44rem;
+  min-height: 40rem;
   margin: 1rem auto 2rem;
   border-radius: 36px;
   overflow: hidden;
@@ -326,8 +315,11 @@ main,
 }
 
 .hero__lead h1 {
-  font-size: clamp(2.9rem, 6.1vw, 5.4rem);
-  max-width: 13ch;
+  font-family: var(--font-logo);
+  font-size: clamp(2.35rem, 4.4vw, 4.05rem);
+  font-weight: 500;
+  line-height: 1.08;
+  max-width: 15ch;
 }
 
 .hero__copy,
@@ -451,22 +443,6 @@ main,
   color: var(--text-soft);
 }
 
-.hero__metrics {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1rem;
-  padding-bottom: 2rem;
-  position: relative;
-}
-
-.hero__metrics div {
-  padding: 1.15rem 1.25rem;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 235, 214, 0.1);
-}
-
-.hero__metrics strong,
 .catalog-hero__stats strong {
   display: block;
   font-size: 2rem;
@@ -474,7 +450,6 @@ main,
   font-weight: 800;
 }
 
-.hero__metrics span,
 .catalog-hero__stats span {
   color: var(--text-soft);
   text-transform: uppercase;
@@ -549,8 +524,10 @@ main,
   border: 1px solid rgba(255, 233, 212, 0.12);
   display: flex;
   flex-direction: column;
-  justify-content: end;
+  justify-content: center;
+  align-items: center;
   gap: 0.55rem;
+  text-align: center;
   box-shadow: var(--shadow);
   transform: perspective(900px) rotateX(var(--tilt-y, 0deg)) rotateY(var(--tilt-x, 0deg));
   transition: transform 160ms ease, border-color 160ms ease;
@@ -565,7 +542,7 @@ main,
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(180deg, rgba(11, 8, 8, 0.04), rgba(11, 8, 8, 0.88)),
+    linear-gradient(180deg, rgba(11, 8, 8, 0.2), rgba(11, 8, 8, 0.72)),
     var(--gateway-image) center/cover;
   transform: scale(1.02);
 }
@@ -577,9 +554,10 @@ main,
 
 .gateway-card span {
   text-transform: uppercase;
-  letter-spacing: 0.14em;
-  font-size: 0.82rem;
-  color: #f2c892;
+  letter-spacing: 0.18em;
+  font-size: 1.05rem;
+  color: #fff7ed;
+  font-weight: 800;
 }
 
 .gateway-card strong {
@@ -591,7 +569,7 @@ main,
 }
 
 .gateway-card--him {
-  --gateway-image: url('/assets/him1.jpg');
+  --gateway-image: url('/assets/creed1.jpeg');
 }
 
 .gateway-card--her {
@@ -599,7 +577,7 @@ main,
 }
 
 .gateway-card--unisex {
-  --gateway-image: url('/assets/center.jpg');
+  --gateway-image: url('/assets/banner1.jpg');
 }
 
 .mode-grid__cards,
@@ -608,6 +586,10 @@ main,
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1rem;
+}
+
+.mode-grid__cards {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .mode-card {
@@ -778,7 +760,8 @@ main,
 .product-card__types span,
 .product-hero__chips span,
 .note-tags span,
-.footer-tags span {
+.footer-tags span,
+.footer-tags a {
   padding: 0.48rem 0.72rem;
   border-radius: 999px;
   border: 1px solid rgba(255, 235, 216, 0.12);
@@ -1326,7 +1309,6 @@ code {
   }
 
   .announcement-bar,
-  .hero__metrics,
   .gateway-grid,
   .mode-grid__cards,
   .product-grid,
@@ -1348,7 +1330,6 @@ code {
 
 @media (max-width: 760px) {
   .announcement-bar,
-  .hero__metrics,
   .gateway-grid,
   .mode-grid__cards,
   .product-grid,
@@ -1376,10 +1357,6 @@ code {
 
   .brand-logo__top {
     font-size: 0.72rem;
-  }
-
-  .brand-logo__tagline {
-    font-size: 0.5rem;
   }
 
   .nav-actions,

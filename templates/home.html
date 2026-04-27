@@ -7,108 +7,80 @@
       <div class="hero__lead">
         <p class="section-kicker">Welcome to {{ site_name }}</p>
         <h1>
-          A perfume destination that treats fragrance like a collection, not just a commodity.
+          Find the scent that feels unmistakably yours.
         </h1>
         <p class="hero__copy">
-          Shop elite niche houses like Creed, Amouage, Kilian, Clive Christian, Roja,
-          Xerjoff, MFK, and Parfums de Marly alongside designer legends from Chanel,
-          Gucci, Dior, Prada, Armani, YSL, and Tom Ford. Every listing supports retail
-          bottles, 5ml to 30ml decants, and selective partial bottles through one real inventory system.
+          Explore a curated edit of niche icons, designer signatures, discovery decants,
+          testers, and collector bottles selected for people who want fragrance to feel personal.
         </p>
         <div class="hero__actions">
-          <a class="button" href="/catalog?collection_type=niche">Explore Niche</a>
-          <a class="button button--ghost" href="/catalog?sale_type=decant">Shop Decants</a>
+          <a class="button" href="/catalog?collection_type=niche">Shop Niche</a>
+          <a class="button" href="/catalog?sale_type=decant">Shop Decants</a>
         </div>
       </div>
 
       <aside class="hero__panel reveal" data-reveal>
-        <p class="section-kicker">Why this storefront feels different</p>
+        <p class="section-kicker">The Scentist Edit</p>
         <div class="hero__feature-list">
           <div>
-            <strong>Curated breadth</strong>
-            <span>Niche masterpieces and designer icons share one polished catalog.</span>
+            <strong>Luxury houses</strong>
+            <span>Prestige names, modern icons, and refined everyday signatures.</span>
           </div>
           <div>
-            <strong>Flexible buying</strong>
-            <span>Retail bottles, discovery decants, testers, and collector partials.</span>
+            <strong>Discovery sizes</strong>
+            <span>Try a scent properly before committing to a full bottle.</span>
           </div>
           <div>
-            <strong>Real operations</strong>
-            <span>Inventory is seeded in SQLite and checkout now supports payment-backed order verification.</span>
+            <strong>Collector finds</strong>
+            <span>Selected testers and partials for smarter additions to your wardrobe.</span>
           </div>
         </div>
       </aside>
     </div>
-    <div class="hero__metrics">
-      <div><strong>{{ site_metrics.brands }}</strong><span>brands</span></div>
-      <div><strong>{{ site_metrics.fragrances }}</strong><span>fragrances</span></div>
-      <div><strong>{{ site_metrics.variants }}</strong><span>offerings</span></div>
-    </div>
-  </section>
-
-  <section class="story-grid">
-    <article class="story-card reveal" data-reveal>
-      <p class="section-kicker">The Welcome Experience</p>
-      <h2>The first impression is meant to feel cinematic and credible.</h2>
-      <p>
-        Instead of dropping people into a plain grid, the landing page tells them what
-        makes your perfume house special: rare access, curated brands, confident taste,
-        and multiple ways to buy the same scent depending on budget and intent.
-      </p>
-    </article>
-    <article class="story-card story-card--image reveal" data-reveal style="--story-image: url('{{ showcase_image }}');">
-      <div class="story-card__overlay">
-        <p class="section-kicker">Retail. Decants. Partials.</p>
-        <h3>One storefront for first samples, full bottles, and hard-to-find collector stock.</h3>
-      </div>
-    </article>
   </section>
 
   <section class="gender-gateway">
     <div class="section-heading">
-      <p class="section-kicker">Interactive Discovery</p>
-      <h2>Start with the world that fits the wearer.</h2>
+      <p class="section-kicker">Shop By Wearer</p>
+      <h2>Start with the edit that fits the moment.</h2>
     </div>
     <div class="gateway-grid">
       <a class="gateway-card gateway-card--him reveal" data-reveal href="/catalog?gender=him">
         <span>For Him</span>
-        <strong>Blue scents, spice, woods, smoke, leather, and modern masculine signatures.</strong>
       </a>
       <a class="gateway-card gateway-card--her reveal" data-reveal href="/catalog?gender=her">
         <span>For Her</span>
-        <strong>Roses, florals, amber musks, fruit, vanilla, and couture-style elegance.</strong>
       </a>
       <a class="gateway-card gateway-card--unisex reveal" data-reveal href="/catalog?gender=unisex">
-        <span>For All</span>
-        <strong>Shared luxury from oud, amber, boozy gourmands, citruses, and abstract woods.</strong>
+        <span>Unisex</span>
       </a>
     </div>
   </section>
 
   <section class="mode-grid">
     <div class="section-heading">
-      <p class="section-kicker">Commerce Modes</p>
-      <h2>Built for how fragrance buyers actually shop.</h2>
+      <p class="section-kicker">Ways To Shop</p>
+      <h2>Choose the format that fits how you wear fragrance.</h2>
     </div>
     <div class="mode-grid__cards">
       <article class="mode-card reveal" data-reveal>
         <h3>Retail Bottles</h3>
-        <p>Sealed presentation bottles for buyers who already know the signature they want.</p>
+        <p>Full presentation bottles for the signatures you already love.</p>
         <a href="/catalog?sale_type=retail">Browse retail</a>
       </article>
       <article class="mode-card reveal" data-reveal>
         <h3>Decants 5ml to 30ml</h3>
-        <p>Sampling-friendly atomizers for discovery sets, travel rotation, and low-risk exploration.</p>
+        <p>Discovery-friendly sizes for testing, travel, and rotation.</p>
         <a href="/catalog?sale_type=decant">Browse decants</a>
       </article>
       <article class="mode-card reveal" data-reveal>
         <h3>Partial Bottles</h3>
-        <p>Collector inventory with remaining fill levels clearly shown for value-minded fragrance enthusiasts.</p>
+        <p>Selected collector bottles for rare finds and sharper value.</p>
         <a href="/catalog?sale_type=partial">Browse partials</a>
       </article>
       <article class="mode-card reveal" data-reveal>
         <h3>Testers</h3>
-        <p>Original juice in simpler presentation, ideal for repeat wearers who prioritize price efficiency.</p>
+        <p>Authentic fragrance in simpler presentation for daily wearers.</p>
         <a href="/catalog?sale_type=tester">Browse testers</a>
       </article>
     </div>
@@ -127,29 +99,13 @@
 
   <section class="product-section">
     <div class="section-heading">
-      <p class="section-kicker">Featured Drops</p>
-      <h2>Flagship releases to anchor the storefront experience.</h2>
+      <p class="section-kicker">Featured Selection</p>
+      <h2>Signature bottles and discovery picks worth exploring first.</h2>
     </div>
     <div class="product-grid">
       {% for item in featured %}
         {% include "_product_card.html" %}
       {% endfor %}
-    </div>
-  </section>
-
-  <section class="promise-band">
-    <div class="promise-band__copy">
-      <p class="section-kicker">Operational Credibility</p>
-      <h2>This is not just a mock catalog. The site is wired to persist real orders.</h2>
-      <p>
-        Products live in SQLite, checkout validates stock, and confirmed orders are saved with line items,
-        customer details, totals, payment state, and status. That gives you a serious foundation to keep extending.
-      </p>
-    </div>
-    <div class="promise-band__tiles">
-      <div><strong>Order records</strong><span>Stored with item-level detail</span></div>
-      <div><strong>Razorpay ready</strong><span>Online payments can be verified before fulfillment</span></div>
-      <div><strong>Trackable flow</strong><span>Each order gets its own confirmation page</span></div>
     </div>
   </section>
 {% endblock %}

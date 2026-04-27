@@ -33,7 +33,7 @@ settings = load_settings()
 
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
-ASSETS_DIR = BASE_DIR / "allure-perfumery-frontend" / "src" / "assets"
+ASSETS_DIR = STATIC_DIR / "assets"
 DATABASE_PATH = BASE_DIR / "data" / "perfumery.sqlite3"
 
 db = Database(DATABASE_PATH, settings)
