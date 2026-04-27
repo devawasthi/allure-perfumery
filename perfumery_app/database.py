@@ -260,6 +260,7 @@ class Database:
                 accent_from TEXT NOT NULL,
                 accent_to TEXT NOT NULL,
                 image_url TEXT NOT NULL DEFAULT '',
+                photo_icon_url TEXT NOT NULL DEFAULT '',
                 artwork_kind TEXT NOT NULL DEFAULT 'generated',
                 bottle_size_ml INTEGER NOT NULL,
                 featured INTEGER NOT NULL DEFAULT 0,
@@ -362,6 +363,7 @@ class Database:
                 accent_from TEXT NOT NULL,
                 accent_to TEXT NOT NULL,
                 image_url TEXT NOT NULL DEFAULT '',
+                photo_icon_url TEXT NOT NULL DEFAULT '',
                 artwork_kind TEXT NOT NULL DEFAULT 'generated',
                 bottle_size_ml INTEGER NOT NULL,
                 featured SMALLINT NOT NULL DEFAULT 0,
@@ -446,6 +448,7 @@ class Database:
             "fragrances",
             {
                 "image_url": "TEXT NOT NULL DEFAULT ''",
+                "photo_icon_url": "TEXT NOT NULL DEFAULT ''",
                 "artwork_kind": "TEXT NOT NULL DEFAULT 'generated'",
             },
         )
@@ -494,8 +497,8 @@ class Database:
             INSERT INTO fragrances (
                 slug, brand, name, collection_type, gender, family, concentration,
                 origin, description, signature, top_notes, heart_notes, base_notes,
-                accent_from, accent_to, image_url, artwork_kind, bottle_size_ml, featured, rank
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                accent_from, accent_to, image_url, photo_icon_url, artwork_kind, bottle_size_ml, featured, rank
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(slug) DO UPDATE SET
                 brand = excluded.brand,
                 name = excluded.name,
@@ -512,6 +515,7 @@ class Database:
                 accent_from = excluded.accent_from,
                 accent_to = excluded.accent_to,
                 image_url = excluded.image_url,
+                photo_icon_url = excluded.photo_icon_url,
                 artwork_kind = excluded.artwork_kind,
                 bottle_size_ml = excluded.bottle_size_ml,
                 featured = excluded.featured,
@@ -534,6 +538,7 @@ class Database:
                 item["colors"][0],
                 item["colors"][1],
                 item["image_url"],
+                item["photo_icon_url"],
                 item["artwork_kind"],
                 item["bottle_size_ml"],
                 1 if item["featured"] else 0,
@@ -761,6 +766,7 @@ class Database:
                     f.accent_from,
                     f.accent_to,
                     f.image_url,
+                    f.photo_icon_url,
                     f.artwork_kind
                 FROM variants v
                 JOIN fragrances f ON f.id = v.fragrance_id
@@ -1271,6 +1277,7 @@ class Database:
             "accent_to": row["accent_to"],
             "image_url": row["image_url"],
             "image_alt": f"{row['brand']} {row['name']} artwork",
+            "photo_icon_url": row["photo_icon_url"],
             "artwork_kind": row["artwork_kind"],
             "bottle_size_ml": row["bottle_size_ml"],
             "featured": bool(row["featured"]),

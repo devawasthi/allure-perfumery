@@ -11,6 +11,14 @@
       alt="{{ item.image_alt }}"
       loading="lazy"
     />
+    {% if item.photo_icon_url %}
+      <img
+        class="product-card__photo-icon"
+        src="{{ item.photo_icon_url }}"
+        alt="{{ item.brand }} {{ item.name }} bottle"
+        loading="lazy"
+      />
+    {% endif %}
     <div class="product-card__bottle">
       <span class="product-card__brand">{{ item.brand }}</span>
       <strong>{{ item.name }}</strong>

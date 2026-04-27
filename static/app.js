@@ -119,7 +119,8 @@ function renderCartSummary(items, subtotalNode, shippingNode, totalNode) {
 }
 
 function imageMarkup(item, className = "fragrance-thumb") {
-  return `<img class="${className}" src="${item.image_url}" alt="${item.brand} ${item.name}" loading="lazy" />`;
+  const imageUrl = item.photo_icon_url || item.image_url;
+  return `<img class="${className}" src="${imageUrl}" alt="${item.brand} ${item.name}" loading="lazy" />`;
 }
 
 async function mountCartPage() {

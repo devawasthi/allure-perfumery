@@ -22,6 +22,7 @@ def fragrance(
     concentration: str = "Eau de Parfum",
     origin: str = "France",
     featured: bool = False,
+    photo_icon_url: str = "",
     sale_plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
@@ -40,6 +41,7 @@ def fragrance(
         "concentration": concentration,
         "origin": origin,
         "featured": featured,
+        "photo_icon_url": photo_icon_url,
         "sale_plan": sale_plan or {},
     }
 
@@ -107,6 +109,10 @@ BASE_FRAGRANCES = [
         "A boardroom icon with bright fruit, smoky woods, and polished masculinity.",
         ("#d4b273", "#2f2823"),
         featured=True,
+        photo_icon_url=(
+            "https://creedboutique.com/cdn/shop/files/Aventus-30ml-new.jpg"
+            "?v=1764096235&width=500"
+        ),
         sale_plan=SIGNATURE_NICHE,
     ),
     fragrance(
@@ -152,7 +158,6 @@ BASE_FRAGRANCES = [
         ["Leather", "Oud", "Patchouli"],
         "A dramatic incense-and-amber storm that wears like black velvet armor.",
         ("#a56b4d", "#261815"),
-        featured=True,
         sale_plan=ULTRA_LUXE,
     ),
     fragrance(
@@ -183,7 +188,6 @@ BASE_FRAGRANCES = [
         ["Sandalwood", "Akigalawood", "Ambergris"],
         "Luminous pear and saffron drifting into plush sandalwood and amber.",
         ("#c87d6f", "#5f2941"),
-        featured=True,
         sale_plan=ULTRA_LUXE,
     ),
     fragrance(
@@ -200,6 +204,10 @@ BASE_FRAGRANCES = [
         "Warm cognac, cinnamon, and praline with huge after-hours charisma.",
         ("#c5823f", "#432718"),
         featured=True,
+        photo_icon_url=(
+            "https://www.bykilian.com/media/images/products/833x968/"
+            "kl_sku_N4TM01_833x968_0.jpg"
+        ),
         sale_plan=ULTRA_LUXE,
     ),
     fragrance(
@@ -245,7 +253,6 @@ BASE_FRAGRANCES = [
         ["Cinnamon", "Oakmoss", "Vetiver"],
         "Royal-level richness balancing fruit, spice, and mossy warmth.",
         ("#d9b169", "#47341d"),
-        featured=True,
         sale_plan=ULTRA_LUXE,
     ),
     fragrance(
@@ -291,7 +298,6 @@ BASE_FRAGRANCES = [
         ["Vetiver", "Ambergris", "Leather"],
         "A sparkling blue-chypre profile that feels expensive from the first spray.",
         ("#93d1d7", "#204d5b"),
-        featured=True,
         sale_plan=ULTRA_LUXE,
     ),
     fragrance(
@@ -337,7 +343,6 @@ BASE_FRAGRANCES = [
         ["Tobacco Leaf", "Tonka Bean", "Vanilla"],
         "One of the most loved tobacco-honey fragrances in the niche world.",
         ("#d4a96b", "#4c2e20"),
-        featured=True,
         sale_plan=SIGNATURE_NICHE,
     ),
     fragrance(
@@ -384,6 +389,11 @@ BASE_FRAGRANCES = [
         "A plush apple-vanilla crowd favorite with rich masculine lift.",
         ("#b08b66", "#1f1a1e"),
         featured=True,
+        photo_icon_url=(
+            "https://parfums-de-marly.com/cdn/shop/files/"
+            "LAYTON-PERFUME-75-PACK1-1X1_CENTERED_1329b06a-d102-4594-87b8-26f2a32b99ce.png"
+            "?v=1759501470&width=500"
+        ),
         sale_plan=MODERN_NICHE,
     ),
     fragrance(
@@ -399,7 +409,6 @@ BASE_FRAGRANCES = [
         ["Cashmeran", "Musk", "Incense"],
         "A sparkling lychee-rose icon that feels airy and glamorous.",
         ("#e8a7b5", "#7c3f5d"),
-        featured=True,
         sale_plan=MODERN_NICHE,
     ),
     fragrance(
@@ -431,6 +440,11 @@ BASE_FRAGRANCES = [
         "Radiant saffroned amberwood that projects with crystalline luxury.",
         ("#e9c48f", "#8d3a35"),
         featured=True,
+        photo_icon_url=(
+            "https://www.franciskurkdjian.com/dw/image/v2/BJSB_PRD/on/demandware.static/-/"
+            "Sites-mfk-master-catalog/default/dwa46019b3/BACCARAT_ROUGE_540/FRAGRANCE/"
+            "3700559603116_BR540_EDP_70ML_1.png?q=85&sfrm=png&sh=500&strip=true&sw=500"
+        ),
         sale_plan=ULTRA_LUXE,
     ),
     fragrance(
@@ -477,6 +491,10 @@ BASE_FRAGRANCES = [
         "Ultra versatile blue luxury with creamy woods and polished freshness.",
         ("#4e6d85", "#171f2a"),
         featured=True,
+        photo_icon_url=(
+            "https://www.chanel.com/images/t_one/q_auto:good,f_auto,fl_lossy,dpr_1.1/w_1240/"
+            "bleu-de-chanel-parfum-spray-3-4fl-oz--packshot-default-107180-8821897232414.jpg"
+        ),
         sale_plan=DESIGNER_INTENSE,
     ),
     fragrance(
@@ -568,6 +586,11 @@ BASE_FRAGRANCES = [
         "Dense, spicy, and assertive with massive longevity and trail.",
         ("#6f8190", "#171e27"),
         featured=True,
+        photo_icon_url=(
+            "https://www.dior.com/dw/image/v2/BGXS_PRD/on/demandware.static/-/"
+            "Sites-master_dior/default/dw4c4f2677/Y0996460/"
+            "Y0996460_C099700242_E01_RHC.jpg?sw=500"
+        ),
         sale_plan=DESIGNER_INTENSE,
     ),
     fragrance(
@@ -658,6 +681,12 @@ BASE_FRAGRANCES = [
         ["Mineral Amber", "Musk", "Patchouli"],
         "Oceanic freshness sharpened with herbs and mineral amber depth.",
         ("#4ea1c3", "#143241"),
+        featured=True,
+        photo_icon_url=(
+            "https://www.giorgioarmanibeauty-usa.com/dw/image/v2/AANG_PRD/on/demandware.static/-/"
+            "Sites-gab-master-catalog/default/dw4eae1912/products/2025/A2267%20RESTAGE/"
+            "3614273953849_01.jpg?q=85&sfrm=jpg&sh=500&sm=cut&sw=500"
+        ),
         sale_plan=DESIGNER,
     ),
     fragrance(
@@ -749,6 +778,10 @@ BASE_FRAGRANCES = [
         "Smooth accessible oud framed by cardamom and velvety woods.",
         ("#a2805b", "#2e1f17"),
         featured=True,
+        photo_icon_url=(
+            "https://www.tomfordbeauty.com/cdn/shop/files/"
+            "tf_sku_T1XF01_2000x2000_0.png?v=1776042907&width=500"
+        ),
         sale_plan=ULTRA_LUXE,
     ),
     fragrance(
@@ -914,6 +947,7 @@ def build_catalog_seed() -> list[dict[str, Any]]:
         record["variants"] = build_variants(record)
         record["artwork_kind"] = "generated"
         record["image_url"] = f"/artwork/{slug}.svg"
+        record["photo_icon_url"] = record.get("photo_icon_url", "")
         catalog.append(record)
 
     return catalog

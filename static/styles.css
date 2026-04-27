@@ -645,6 +645,11 @@ main,
     linear-gradient(145deg, var(--card-from), var(--card-to));
 }
 
+.product-card__pill {
+  position: relative;
+  z-index: 3;
+}
+
 .product-card__image {
   position: absolute;
   inset: 1rem 1rem 4.8rem;
@@ -655,6 +660,21 @@ main,
   box-shadow: 0 22px 50px rgba(0, 0, 0, 0.28);
 }
 
+.product-card__photo-icon {
+  position: absolute;
+  top: 1.45rem;
+  right: 1.45rem;
+  z-index: 3;
+  width: 4.4rem;
+  height: 4.4rem;
+  object-fit: contain;
+  padding: 0.28rem;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 244, 231, 0.8);
+  background: rgba(255, 250, 244, 0.94);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.32);
+}
+
 .product-card__visual::after,
 .product-hero__visual::after {
   content: "";
@@ -662,6 +682,7 @@ main,
   inset: 1rem;
   border-radius: 26px;
   border: 1px solid rgba(255, 245, 231, 0.12);
+  pointer-events: none;
 }
 
 .product-card__pill,
