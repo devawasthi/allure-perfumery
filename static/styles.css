@@ -568,18 +568,6 @@ main,
   line-height: 1.05;
 }
 
-.gateway-card--him {
-  --gateway-image: url('/assets/creed1.jpeg');
-}
-
-.gateway-card--her {
-  --gateway-image: url('/assets/her11.jpg');
-}
-
-.gateway-card--unisex {
-  --gateway-image: url('/assets/banner1.jpg');
-}
-
 .mode-grid__cards,
 .product-grid,
 .offer-grid {
