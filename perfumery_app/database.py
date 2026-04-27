@@ -162,7 +162,10 @@ class PostgresBackend:
                 row_factory=self._dict_row,
             )
 
-        raw.execute("SET statement_timeout = %s", (self.settings.database_statement_timeout_ms,))
+        raw.execute(
+            "SELECT set_config('statement_timeout', %s, false)",
+            (str(self.settings.database_statement_timeout_ms),),
+        )
         return PostgresConnection(raw, pool=pool)
 
     def close(self) -> None:
