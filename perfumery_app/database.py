@@ -206,12 +206,23 @@ class Database:
 
     def initialize(self) -> None:
         with self.connect() as conn:
+            self._prepare_initialization_connection(conn)
             for statement in self._schema_statements():
                 conn.execute(statement)
             self._ensure_schema_upgrades(conn)
             if self.settings.auto_seed_catalog:
                 self._sync_catalog(conn)
             conn.commit()
+
+    def _prepare_initialization_connection(self, conn: DatabaseConnection) -> None:
+        if conn.dialect != "postgres":
+            return
+
+        conn.execute("SELECT set_config('statement_timeout', ?, true)", ("0",))
+        conn.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(?))",
+            (f"{self.settings.site_name}:database_initialize",),
+        )
 
     def close(self) -> None:
         close = getattr(self.backend, "close", None)
