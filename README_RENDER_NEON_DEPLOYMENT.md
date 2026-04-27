@@ -1,6 +1,6 @@
 # Render + Neon Deployment
 
-This is the low-cost deployment path for Allure Alchemy.
+This is the low-cost deployment path for The Scentist.
 
 - Render runs the Dockerized Python/Gunicorn web app.
 - Neon provides managed PostgreSQL.
@@ -24,7 +24,7 @@ For a real store, upgrade the Render service from `free` to `starter` so the app
 3. In the Neon project dashboard, click `Connect`.
 4. Select:
    - Branch: `main`
-   - Database: the default database, or create `allurealchemy`
+   - Database: the default database, or create `thescentist`
    - Role: the app role Neon created
    - Connection pooling: off
 5. Copy the direct connection string.
@@ -46,7 +46,7 @@ Use the direct connection string first. Do not use the `-pooler` hostname for th
 5. When Render asks for secret values, enter:
 
 ```text
-BASE_URL=https://allure-alchemy.onrender.com
+BASE_URL=https://your-render-url.onrender.com
 DATABASE_URL=<your Neon direct connection string>
 RAZORPAY_KEY_ID=
 RAZORPAY_KEY_SECRET=

@@ -40,7 +40,7 @@ If your audience is somewhere else, change the region accordingly.
 ## 1. Create an ECR Repository
 
 ```bash
-aws ecr create-repository --repository-name allure-alchemy --region ap-south-1
+aws ecr create-repository --repository-name the-scentist --region ap-south-1
 ```
 
 ## 2. Build and Push the Image
@@ -49,9 +49,9 @@ Replace the account id and image tag:
 
 ```bash
 aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 123456789012.dkr.ecr.ap-south-1.amazonaws.com
-docker build -t allure-alchemy:prod-001 .
-docker tag allure-alchemy:prod-001 123456789012.dkr.ecr.ap-south-1.amazonaws.com/allure-alchemy:prod-001
-docker push 123456789012.dkr.ecr.ap-south-1.amazonaws.com/allure-alchemy:prod-001
+docker build -t the-scentist:prod-001 .
+docker tag the-scentist:prod-001 123456789012.dkr.ecr.ap-south-1.amazonaws.com/the-scentist:prod-001
+docker push 123456789012.dkr.ecr.ap-south-1.amazonaws.com/the-scentist:prod-001
 ```
 
 ## 3. Create Razorpay Secrets
@@ -59,9 +59,9 @@ docker push 123456789012.dkr.ecr.ap-south-1.amazonaws.com/allure-alchemy:prod-00
 Create these only if you want live Razorpay checkout enabled:
 
 ```bash
-aws secretsmanager create-secret --region ap-south-1 --name allure-alchemy/prod/razorpay-key-id --secret-string 'rzp_live_xxxxx'
-aws secretsmanager create-secret --region ap-south-1 --name allure-alchemy/prod/razorpay-key-secret --secret-string 'your_live_key_secret'
-aws secretsmanager create-secret --region ap-south-1 --name allure-alchemy/prod/razorpay-webhook-secret --secret-string 'your_live_webhook_secret'
+aws secretsmanager create-secret --region ap-south-1 --name the-scentist/prod/razorpay-key-id --secret-string 'rzp_live_xxxxx'
+aws secretsmanager create-secret --region ap-south-1 --name the-scentist/prod/razorpay-key-secret --secret-string 'your_live_key_secret'
+aws secretsmanager create-secret --region ap-south-1 --name the-scentist/prod/razorpay-webhook-secret --secret-string 'your_live_webhook_secret'
 ```
 
 If you skip these, the app still deploys and can use manual checkout if enabled.
@@ -73,21 +73,21 @@ Use the values in `infra/aws/parameters.example.txt` as your starting point, the
 ```bash
 aws cloudformation deploy \
   --region ap-south-1 \
-  --stack-name allure-alchemy-prod \
+  --stack-name the-scentist-prod \
   --template-file infra/aws/ecs-fargate-rds.yml \
   --capabilities CAPABILITY_NAMED_IAM \
   --parameter-overrides \
-    AppName=allure-alchemy \
+    AppName=the-scentist \
     EnvironmentName=prod \
     BaseUrl=https://store.example.com \
-    SiteName="Allure Alchemy" \
-    ImageUri=123456789012.dkr.ecr.ap-south-1.amazonaws.com/allure-alchemy:prod-001 \
+    SiteName="The Scentist" \
+    ImageUri=123456789012.dkr.ecr.ap-south-1.amazonaws.com/the-scentist:prod-001 \
     AcmCertificateArn=arn:aws:acm:ap-south-1:123456789012:certificate/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx \
     AvailabilityZoneOne=ap-south-1a \
     AvailabilityZoneTwo=ap-south-1b \
-    RazorpayKeyIdSecretArn=arn:aws:secretsmanager:ap-south-1:123456789012:secret:allure-alchemy/prod/razorpay-key-id-xxxxxx \
-    RazorpayKeySecretSecretArn=arn:aws:secretsmanager:ap-south-1:123456789012:secret:allure-alchemy/prod/razorpay-key-secret-xxxxxx \
-    RazorpayWebhookSecretSecretArn=arn:aws:secretsmanager:ap-south-1:123456789012:secret:allure-alchemy/prod/razorpay-webhook-secret-xxxxxx
+    RazorpayKeyIdSecretArn=arn:aws:secretsmanager:ap-south-1:123456789012:secret:the-scentist/prod/razorpay-key-id-xxxxxx \
+    RazorpayKeySecretSecretArn=arn:aws:secretsmanager:ap-south-1:123456789012:secret:the-scentist/prod/razorpay-key-secret-xxxxxx \
+    RazorpayWebhookSecretSecretArn=arn:aws:secretsmanager:ap-south-1:123456789012:secret:the-scentist/prod/razorpay-webhook-secret-xxxxxx
 ```
 
 ## 5. Check Outputs
@@ -97,7 +97,7 @@ After the stack finishes:
 ```bash
 aws cloudformation describe-stacks \
   --region ap-south-1 \
-  --stack-name allure-alchemy-prod \
+  --stack-name the-scentist-prod \
   --query "Stacks[0].Outputs"
 ```
 

@@ -16,6 +16,7 @@
   --radius-md: 18px;
   --max-width: 1240px;
   --font-sans: "Manrope", "Avenir Next", "Segoe UI", Arial, sans-serif;
+  --font-logo: "Bodoni Moda", "Didot", "Bodoni 72", "Times New Roman", serif;
 }
 
 *,
@@ -164,37 +165,43 @@ main,
 .brand-mark {
   display: inline-flex;
   align-items: center;
-  gap: 0.9rem;
+  color: var(--text);
+  min-width: max-content;
 }
 
-.brand-mark strong {
+.brand-logo {
+  display: grid;
+  justify-items: center;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.brand-logo__top {
   display: block;
   font-family: var(--font-sans);
-  font-size: 1.45rem;
+  font-size: 0.84rem;
   font-weight: 800;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.36em;
+  margin-left: 0.36em;
 }
 
-.brand-mark small {
+.brand-logo__name {
+  display: block;
+  font-family: var(--font-logo);
+  font-size: 2.1rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  margin-left: 0.08em;
+}
+
+.brand-logo__tagline {
   display: block;
   color: var(--text-soft);
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-}
-
-.brand-mark__crest {
-  width: 3rem;
-  height: 3rem;
-  border-radius: 999px;
-  display: grid;
-  place-items: center;
-  background: linear-gradient(135deg, rgba(240, 202, 147, 0.32), rgba(121, 69, 45, 0.42));
-  border: 1px solid rgba(255, 222, 189, 0.16);
   font-family: var(--font-sans);
-  font-weight: 800;
-  font-size: 1.1rem;
-  letter-spacing: 0.08em;
+  font-size: 0.56rem;
+  font-weight: 500;
+  letter-spacing: 0.38em;
+  margin-left: 0.38em;
 }
 
 .nav-links {
@@ -1360,7 +1367,19 @@ code {
   }
 
   .brand-mark {
-    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .brand-logo__name {
+    font-size: 1.7rem;
+  }
+
+  .brand-logo__top {
+    font-size: 0.72rem;
+  }
+
+  .brand-logo__tagline {
+    font-size: 0.5rem;
   }
 
   .nav-actions,

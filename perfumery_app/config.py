@@ -12,6 +12,13 @@ def env_flag(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def env_text(name: str, default: str, *, retired_value: str = "") -> str:
+    value = os.getenv(name, default).strip()
+    if not value or value == retired_value:
+        return default
+    return value
+
+
 @dataclass(frozen=True)
 class Settings:
     site_name: str
@@ -78,7 +85,7 @@ class Settings:
 
 def load_settings() -> Settings:
     return Settings(
-        site_name=os.getenv("SITE_NAME", "Allure Alchemy"),
+        site_name=env_text("SITE_NAME", "The Scentist", retired_value="Allure Alchemy"),
         host=os.getenv("HOST", "0.0.0.0"),
         port=int(os.getenv("PORT", "8780")),
         base_url=os.getenv("BASE_URL", "").rstrip("/"),
@@ -87,7 +94,7 @@ def load_settings() -> Settings:
         default_country=os.getenv("STORE_DEFAULT_COUNTRY", "India"),
         shipping_fee_inr=int(os.getenv("SHIPPING_FEE_INR", "350")),
         free_shipping_threshold_inr=int(os.getenv("FREE_SHIPPING_THRESHOLD_INR", "12500")),
-        order_prefix=os.getenv("ORDER_PREFIX", "ALR"),
+        order_prefix=env_text("ORDER_PREFIX", "TSC", retired_value="ALR"),
         database_url=os.getenv("DATABASE_URL", "").strip(),
         db_host=os.getenv("DB_HOST", "").strip(),
         db_port=int(os.getenv("DB_PORT", "5432")),

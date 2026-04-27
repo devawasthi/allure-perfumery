@@ -1,4 +1,4 @@
-const CART_KEY = "allure-alchemy-cart-v1";
+const CART_KEY = "the-scentist-cart-v1";
 const SHIPPING_FEE = 350;
 const FREE_SHIPPING_THRESHOLD = 12500;
 
@@ -391,7 +391,7 @@ async function mountCheckoutPage() {
           key: checkout.razorpay_key_id,
           amount: checkout.amount_subunits,
           currency: checkout.currency,
-          name: root.dataset.storeName || "Allure Alchemy",
+          name: root.dataset.storeName || "The Scentist",
           description: "Luxury fragrance order",
           image: root.dataset.storeLogo || "",
           order_id: checkout.gateway_order_id,

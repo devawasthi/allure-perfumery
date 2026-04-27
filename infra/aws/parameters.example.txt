@@ -1,11 +1,11 @@
-AppName=allure-alchemy
+AppName=the-scentist
 EnvironmentName=prod
 BaseUrl=https://store.example.com
-SiteName=Allure Alchemy
-ImageUri=123456789012.dkr.ecr.ap-south-1.amazonaws.com/allure-alchemy:prod-001
+SiteName=The Scentist
+ImageUri=123456789012.dkr.ecr.ap-south-1.amazonaws.com/the-scentist:prod-001
 AcmCertificateArn=arn:aws:acm:ap-south-1:123456789012:certificate/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 AvailabilityZoneOne=ap-south-1a
 AvailabilityZoneTwo=ap-south-1b
-RazorpayKeyIdSecretArn=arn:aws:secretsmanager:ap-south-1:123456789012:secret:allure-alchemy/prod/razorpay-key-id-xxxxxx
-RazorpayKeySecretSecretArn=arn:aws:secretsmanager:ap-south-1:123456789012:secret:allure-alchemy/prod/razorpay-key-secret-xxxxxx
-RazorpayWebhookSecretSecretArn=arn:aws:secretsmanager:ap-south-1:123456789012:secret:allure-alchemy/prod/razorpay-webhook-secret-xxxxxx
+RazorpayKeyIdSecretArn=arn:aws:secretsmanager:ap-south-1:123456789012:secret:the-scentist/prod/razorpay-key-id-xxxxxx
+RazorpayKeySecretSecretArn=arn:aws:secretsmanager:ap-south-1:123456789012:secret:the-scentist/prod/razorpay-key-secret-xxxxxx
+RazorpayWebhookSecretSecretArn=arn:aws:secretsmanager:ap-south-1:123456789012:secret:the-scentist/prod/razorpay-webhook-secret-xxxxxx

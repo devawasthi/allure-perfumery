@@ -1,12 +1,12 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  Allure Alchemy production stack on AWS using ECS Fargate, an Application Load Balancer,
+  The Scentist production stack on AWS using ECS Fargate, an Application Load Balancer,
   and Amazon RDS for PostgreSQL.
 
 Parameters:
   AppName:
     Type: String
-    Default: allure-alchemy
+    Default: the-scentist
   EnvironmentName:
     Type: String
     Default: prod
@@ -15,10 +15,10 @@ Parameters:
     Description: Public base URL for the storefront, for example https://store.example.com
   SiteName:
     Type: String
-    Default: Allure Alchemy
+    Default: The Scentist
   ImageUri:
     Type: String
-    Description: Full ECR image URI, for example 123456789012.dkr.ecr.ap-south-1.amazonaws.com/allure-alchemy:prod-001
+    Description: Full ECR image URI, for example 123456789012.dkr.ecr.ap-south-1.amazonaws.com/the-scentist:prod-001
   AcmCertificateArn:
     Type: String
     Default: ""
@@ -71,7 +71,7 @@ Parameters:
     Default: 10
   DbName:
     Type: String
-    Default: allurealchemy
+    Default: thescentist
   DbUsername:
     Type: String
     Default: app_user
@@ -110,7 +110,7 @@ Parameters:
     Default: 12500
   OrderPrefix:
     Type: String
-    Default: ALR
+    Default: TSC
   MaxRequestBodyBytes:
     Type: Number
     Default: 262144

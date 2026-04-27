@@ -73,8 +73,8 @@ gunicorn server:application -c gunicorn.conf.py
 ## Docker
 
 ```bash
-docker build -t allure-alchemy .
-docker run --env-file .env -p 8780:8780 allure-alchemy
+docker build -t the-scentist .
+docker run --env-file .env -p 8780:8780 the-scentist
 ```
 
 ## PostgreSQL Notes

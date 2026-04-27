@@ -76,7 +76,7 @@ class RazorpayClient:
                 "Authorization": self._auth_header(),
                 "Content-Type": "application/json",
                 "Accept": "application/json",
-                "User-Agent": "AllureAlchemy/1.0",
+                "User-Agent": "TheScentist/1.0",
             },
         )
 
@@ -97,4 +97,3 @@ class RazorpayClient:
     def _auth_header(self) -> str:
         token = base64.b64encode(f"{self.key_id}:{self.key_secret}".encode("utf-8")).decode("ascii")
         return f"Basic {token}"
-

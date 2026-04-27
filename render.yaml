@@ -10,7 +10,7 @@ services:
       - key: APP_ENV
         value: production
       - key: SITE_NAME
-        value: Allure Alchemy
+        value: The Scentist
       - key: BASE_URL
         sync: false
       - key: DATABASE_URL
@@ -28,7 +28,7 @@ services:
       - key: FREE_SHIPPING_THRESHOLD_INR
         value: "12500"
       - key: ORDER_PREFIX
-        value: ALR
+        value: TSC
       - key: WEB_CONCURRENCY
         value: "2"
       - key: WEB_THREADS
