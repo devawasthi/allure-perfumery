@@ -14,7 +14,7 @@
       href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,500;6..96,600&family=EB+Garamond:wght@400;500;600&family=Tenor+Sans&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/styles.css?v={{ asset_version }}" />
   </head>
   <body>
     {% if preview_label %}
@@ -91,7 +91,7 @@
     </footer>
 
     <div class="toast-stack" data-toast-stack></div>
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v={{ asset_version }}"></script>
     {% block scripts %}{% endblock %}
   </body>
 </html>

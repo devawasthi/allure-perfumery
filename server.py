@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import mimetypes
@@ -36,6 +37,19 @@ STATIC_DIR = BASE_DIR / "static"
 ASSETS_DIR = STATIC_DIR / "assets"
 configured_sqlite_path = Path(settings.sqlite_database_path or "data/perfumery.sqlite3")
 DATABASE_PATH = configured_sqlite_path if configured_sqlite_path.is_absolute() else BASE_DIR / configured_sqlite_path
+
+
+def build_asset_version() -> str:
+    digest = hashlib.sha256()
+    for file_path in (STATIC_DIR / "styles.css", STATIC_DIR / "app.js"):
+        try:
+            digest.update(file_path.read_bytes())
+        except FileNotFoundError:
+            continue
+    return digest.hexdigest()[:12]
+
+
+ASSET_VERSION = os.getenv("ASSET_VERSION", "").strip() or build_asset_version()
 
 db = Database(DATABASE_PATH, settings)
 db.initialize()
@@ -475,6 +489,7 @@ class PerfumeryApplication:
             "site_name": settings.site_name,
             "site_logo": "/assets/perfume-logo.png",
             "current_path": path,
+            "asset_version": ASSET_VERSION,
             "preview_label": preview_label,
             "site_metrics": metrics,
             "payment": {
