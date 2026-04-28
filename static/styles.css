@@ -15,7 +15,8 @@
   --radius-lg: 24px;
   --radius-md: 18px;
   --max-width: 1240px;
-  --font-sans: "Manrope", "Avenir Next", "Segoe UI", Arial, sans-serif;
+  --font-sans: "Montserrat", "Avenir Next", "Segoe UI", Arial, sans-serif;
+  --font-display: "EB Garamond", "Cormorant Garamond", Georgia, serif;
   --font-logo: "Bodoni Moda", "Didot", "Bodoni 72", "Times New Roman", serif;
 }
 
@@ -256,7 +257,8 @@ main,
   color: #f0c996;
   font-size: 0.8rem;
   text-transform: uppercase;
-  letter-spacing: 0.15em;
+  letter-spacing: 0.18em;
+  font-weight: 600;
 }
 
 .section-heading {
@@ -316,8 +318,8 @@ main,
 }
 
 .hero .section-kicker {
-  letter-spacing: 0.2em;
-  font-weight: 800;
+  letter-spacing: 0.24em;
+  font-weight: 600;
 }
 
 .hero__lead {
@@ -325,10 +327,10 @@ main,
 }
 
 .hero__lead h1 {
-  font-family: var(--font-logo);
-  font-size: clamp(2.35rem, 4.4vw, 4.05rem);
+  font-family: var(--font-display);
+  font-size: clamp(2.45rem, 4.6vw, 4.25rem);
   font-weight: 500;
-  line-height: 1.08;
+  line-height: 1.22;
   max-width: 15ch;
 }
 
@@ -357,8 +359,10 @@ main,
   border-radius: 999px;
   background: linear-gradient(135deg, #f3c98f, #b37042);
   color: #1d1512;
-  font-weight: 800;
-  letter-spacing: 0.04em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.78rem;
   transition: transform 180ms ease, box-shadow 180ms ease, opacity 180ms ease;
   display: inline-flex;
   align-items: center;
