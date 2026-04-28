@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="utility-hero">
+    <p class="section-kicker">Admin Order</p>
+    <h1>{{ order.order_number }}</h1>
+    <p>{{ order.customer_name }} &middot; {{ order.total_inr|money }} &middot; {{ order.payment_status|titleize_enum }}</p>
+  </section>
+
+  <section class="admin-toolbar">
+    <a class="button button--ghost" href="/admin">Back to orders</a>
+    <form action="/admin/logout" method="post">
+      <button class="button button--ghost" type="submit">Logout</button>
+    </form>
+  </section>
+
+  <section class="order-layout">
+    <article class="order-card">
+      <p class="section-kicker">Customer</p>
+      <h2>{{ order.customer_name }}</h2>
+      <div class="order-card__list">
+        <div><span>Email</span><strong>{{ order.email }}</strong></div>
+        <div><span>Phone</span><strong>{{ order.phone }}</strong></div>
+        <div><span>Payment</span><strong>{{ order.payment_method }}</strong></div>
+        <div><span>Payment Status</span><strong>{{ order.payment_status|titleize_enum }}</strong></div>
+        {% if order.gateway_payment_id %}
+          <div><span>Gateway Payment</span><strong>{{ order.gateway_payment_id }}</strong></div>
+        {% endif %}
+        {% if order.last_error %}
+          <div><span>Review</span><strong>{{ order.last_error }}</strong></div>
+        {% endif %}
+      </div>
+    </article>
+
+    <article class="order-card">
+      <p class="section-kicker">Fulfilment</p>
+      <form class="checkout-form" action="/admin/orders/{{ order.order_number }}/status" method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        <label>
+          Status
+          <select name="status">
+            {% for status in order_statuses %}
+              <option value="{{ status }}" {% if status == order.status %}selected{% endif %}>{{ status }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button class="button" type="submit">Update status</button>
+      </form>
+      <p class="order-card__address">
+        {{ order.shipping_line1 }}{% if order.shipping_line2 %}, {{ order.shipping_line2 }}{% endif %},
+        {{ order.city }}, {{ order.state }} {{ order.postal_code }}, {{ order.country }}
+      </p>
+      {% if order.delivery_notes %}
+        <p class="order-card__notes"><strong>Note:</strong> {{ order.delivery_notes }}</p>
+      {% endif %}
+    </article>
+  </section>
+
+  <section class="order-card order-card--full">
+    <p class="section-kicker">Items</p>
+    <div class="order-line-list">
+      {% for item in order["items"] %}
+        <div class="order-line">
+          <div>
+            <strong>{{ item.brand }} {{ item.fragrance_name }}</strong>
+            <span>{{ item.size_label }} &middot; {{ item.sale_type|titleize_enum }}</span>
+          </div>
+          <div>
+            <strong>{{ item.line_total_inr|money }}</strong>
+            <span>{{ item.quantity }} x {{ item.price_inr|money }}</span>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+    <div class="summary-card__lines order-total">
+      <div><span>Subtotal</span><strong>{{ order.subtotal_inr|money }}</strong></div>
+      <div><span>Shipping</span><strong>{{ order.shipping_inr|money }}</strong></div>
+      <div class="summary-card__total"><span>Total</span><strong>{{ order.total_inr|money }}</strong></div>
+    </div>
+  </section>
+{% endblock %}

@@ -19,11 +19,6 @@
         loading="lazy"
       />
     {% endif %}
-    <div class="product-card__bottle">
-      <span class="product-card__brand">{{ item.brand }}</span>
-      <strong>{{ item.name }}</strong>
-      <small>{{ item.family|title }}</small>
-    </div>
   </a>
   <div class="product-card__body">
     <p class="section-kicker">{{ item.brand }}</p>
@@ -31,12 +26,6 @@
     <p class="product-card__meta">
       {{ item.gender|titleize_enum }} &middot; {{ item.concentration }} &middot; {{ item.origin }}
     </p>
-    <p class="product-card__copy">{{ item.signature }}</p>
-    <div class="product-card__types">
-      {% for type in item.sale_types %}
-        <span>{{ type|titleize_enum }}</span>
-      {% endfor %}
-    </div>
     <div class="product-card__footer">
       <div>
         <small>From</small>

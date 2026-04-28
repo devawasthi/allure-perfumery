@@ -51,6 +51,15 @@ class Settings:
     razorpay_key_secret: str
     razorpay_webhook_secret: str
     enable_manual_checkout: bool
+    payment_reservation_minutes: int
+    admin_token: str
+    admin_email: str
+    notification_from_email: str
+    smtp_host: str
+    smtp_port: int
+    smtp_username: str
+    smtp_password: str
+    smtp_use_tls: bool
 
     @property
     def razorpay_enabled(self) -> bool:
@@ -111,9 +120,18 @@ def load_settings() -> Settings:
         sqlite_busy_timeout_ms=int(os.getenv("SQLITE_BUSY_TIMEOUT_MS", "5000")),
         max_request_body_bytes=int(os.getenv("MAX_REQUEST_BODY_BYTES", "262144")),
         static_cache_max_age_seconds=int(os.getenv("STATIC_CACHE_MAX_AGE_SECONDS", "86400")),
-        auto_seed_catalog=env_flag("AUTO_SEED_CATALOG", True),
+        auto_seed_catalog=env_flag("AUTO_SEED_CATALOG", False),
         razorpay_key_id=os.getenv("RAZORPAY_KEY_ID", "").strip(),
         razorpay_key_secret=os.getenv("RAZORPAY_KEY_SECRET", "").strip(),
         razorpay_webhook_secret=os.getenv("RAZORPAY_WEBHOOK_SECRET", "").strip(),
         enable_manual_checkout=env_flag("ENABLE_MANUAL_CHECKOUT", True),
+        payment_reservation_minutes=int(os.getenv("PAYMENT_RESERVATION_MINUTES", "30")),
+        admin_token=os.getenv("ADMIN_TOKEN", "").strip(),
+        admin_email=os.getenv("ADMIN_EMAIL", "").strip(),
+        notification_from_email=os.getenv("NOTIFICATION_FROM_EMAIL", "").strip(),
+        smtp_host=os.getenv("SMTP_HOST", "").strip(),
+        smtp_port=int(os.getenv("SMTP_PORT", "587")),
+        smtp_username=os.getenv("SMTP_USERNAME", "").strip(),
+        smtp_password=os.getenv("SMTP_PASSWORD", "").strip(),
+        smtp_use_tls=env_flag("SMTP_USE_TLS", True),
     )

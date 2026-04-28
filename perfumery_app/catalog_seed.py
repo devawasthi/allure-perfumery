@@ -22,6 +22,7 @@ def fragrance(
     concentration: str = "Eau de Parfum",
     origin: str = "France",
     featured: bool = False,
+    image_url: str = "",
     photo_icon_url: str = "",
     sale_plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -41,6 +42,7 @@ def fragrance(
         "concentration": concentration,
         "origin": origin,
         "featured": featured,
+        "image_url": image_url,
         "photo_icon_url": photo_icon_url,
         "sale_plan": sale_plan or {},
     }
@@ -109,10 +111,7 @@ BASE_FRAGRANCES = [
         "A boardroom icon with bright fruit, smoky woods, and polished masculinity.",
         ("#d4b273", "#2f2823"),
         featured=True,
-        photo_icon_url=(
-            "https://creedboutique.com/cdn/shop/files/Aventus-30ml-new.jpg"
-            "?v=1764096235&width=500"
-        ),
+        image_url="/assets/creed-aventus.png",
         sale_plan=SIGNATURE_NICHE,
     ),
     fragrance(
@@ -490,11 +489,9 @@ BASE_FRAGRANCES = [
         ["Sandalwood", "Cedar", "Tonka Bean"],
         "Ultra versatile blue luxury with creamy woods and polished freshness.",
         ("#4e6d85", "#171f2a"),
+        concentration="Parfum",
         featured=True,
-        photo_icon_url=(
-            "https://www.chanel.com/images/t_one/q_auto:good,f_auto,fl_lossy,dpr_1.1/w_1240/"
-            "bleu-de-chanel-parfum-spray-3-4fl-oz--packshot-default-107180-8821897232414.jpg"
-        ),
+        image_url="/assets/bleu-de-chanel-parfum.png",
         sale_plan=DESIGNER_INTENSE,
     ),
     fragrance(
@@ -945,8 +942,11 @@ def build_catalog_seed() -> list[dict[str, Any]]:
         record["slug"] = slug
         record["rank"] = index + 1
         record["variants"] = build_variants(record)
-        record["artwork_kind"] = "generated"
-        record["image_url"] = f"/artwork/{slug}.svg"
+        if record.get("image_url"):
+            record["artwork_kind"] = "photo"
+        else:
+            record["artwork_kind"] = "generated"
+            record["image_url"] = f"/artwork/{slug}.svg"
         record["photo_icon_url"] = record.get("photo_icon_url", "")
         catalog.append(record)
 

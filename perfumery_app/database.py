@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 import random
 import re
+import secrets
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -286,6 +287,7 @@ class Database:
             CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 order_number TEXT NOT NULL UNIQUE,
+                public_token TEXT NOT NULL UNIQUE,
                 customer_name TEXT NOT NULL,
                 email TEXT NOT NULL,
                 phone TEXT NOT NULL,
@@ -308,8 +310,11 @@ class Database:
                 total_inr INTEGER NOT NULL,
                 item_count INTEGER NOT NULL,
                 status TEXT NOT NULL,
+                stock_reserved INTEGER NOT NULL DEFAULT 0,
+                reservation_expires_at TEXT NOT NULL DEFAULT '',
                 initiated_at TEXT NOT NULL DEFAULT '',
                 paid_at TEXT NOT NULL DEFAULT '',
+                notification_sent_at TEXT NOT NULL DEFAULT '',
                 last_error TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL
             )
@@ -388,6 +393,7 @@ class Database:
             CREATE TABLE IF NOT EXISTS orders (
                 id BIGSERIAL PRIMARY KEY,
                 order_number TEXT NOT NULL UNIQUE,
+                public_token TEXT NOT NULL UNIQUE,
                 customer_name TEXT NOT NULL,
                 email TEXT NOT NULL,
                 phone TEXT NOT NULL,
@@ -410,8 +416,11 @@ class Database:
                 total_inr INTEGER NOT NULL,
                 item_count INTEGER NOT NULL,
                 status TEXT NOT NULL,
+                stock_reserved SMALLINT NOT NULL DEFAULT 0,
+                reservation_expires_at TEXT NOT NULL DEFAULT '',
                 initiated_at TEXT NOT NULL DEFAULT '',
                 paid_at TEXT NOT NULL DEFAULT '',
+                notification_sent_at TEXT NOT NULL DEFAULT '',
                 last_error TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL
             )
@@ -458,15 +467,31 @@ class Database:
             {
                 "payment_gateway": "TEXT NOT NULL DEFAULT ''",
                 "payment_status": "TEXT NOT NULL DEFAULT ''",
+                "public_token": "TEXT NOT NULL DEFAULT ''",
                 "gateway_order_id": "TEXT NOT NULL DEFAULT ''",
                 "gateway_payment_id": "TEXT NOT NULL DEFAULT ''",
                 "gateway_signature": "TEXT NOT NULL DEFAULT ''",
                 "payment_amount_inr": "INTEGER NOT NULL DEFAULT 0",
+                "stock_reserved": "INTEGER NOT NULL DEFAULT 0",
+                "reservation_expires_at": "TEXT NOT NULL DEFAULT ''",
                 "initiated_at": "TEXT NOT NULL DEFAULT ''",
                 "paid_at": "TEXT NOT NULL DEFAULT ''",
+                "notification_sent_at": "TEXT NOT NULL DEFAULT ''",
                 "last_error": "TEXT NOT NULL DEFAULT ''",
             },
         )
+        self._backfill_order_tokens(conn)
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_public_token ON orders (public_token)")
+
+    def _backfill_order_tokens(self, conn: DatabaseConnection) -> None:
+        rows = conn.execute(
+            "SELECT id FROM orders WHERE public_token = '' OR public_token IS NULL"
+        ).fetchall()
+        for row in rows:
+            conn.execute(
+                "UPDATE orders SET public_token = ? WHERE id = ?",
+                (self._generate_public_token(conn), row["id"]),
+            )
 
     def _ensure_columns(
         self,
@@ -625,8 +650,47 @@ class Database:
         filters: dict[str, str] | None = None,
         *,
         limit: int | None = None,
+        offset: int = 0,
         featured_only: bool = False,
     ) -> list[dict[str, Any]]:
+        clauses, params = self._fragrance_filter_clauses(filters, featured_only=featured_only)
+
+        query = f"""
+            SELECT *
+            FROM fragrances
+            WHERE {' AND '.join(clauses)}
+            ORDER BY featured DESC, rank ASC, brand ASC, name ASC
+        """
+
+        if limit:
+            query += " LIMIT ?"
+            params.append(limit)
+            if offset:
+                query += " OFFSET ?"
+                params.append(offset)
+
+        with self.connect() as conn:
+            fragrance_rows = conn.execute(query, params).fetchall()
+            fragrance_ids = [row["id"] for row in fragrance_rows]
+            variants_by_fragrance = self._variants_by_fragrance(conn, fragrance_ids)
+
+        return [self._serialize_fragrance(row, variants_by_fragrance.get(row["id"], [])) for row in fragrance_rows]
+
+    def count_fragrances(self, filters: dict[str, str] | None = None, *, featured_only: bool = False) -> int:
+        clauses, params = self._fragrance_filter_clauses(filters, featured_only=featured_only)
+        with self.connect() as conn:
+            row = conn.execute(
+                f"SELECT COUNT(*) AS count FROM fragrances WHERE {' AND '.join(clauses)}",
+                params,
+            ).fetchone()
+        return int(row["count"]) if row else 0
+
+    def _fragrance_filter_clauses(
+        self,
+        filters: dict[str, str] | None = None,
+        *,
+        featured_only: bool = False,
+    ) -> tuple[list[str], list[Any]]:
         filters = {key: value for key, value in (filters or {}).items() if value}
         clauses = ["1 = 1"]
         params: list[Any] = []
@@ -662,23 +726,7 @@ class Database:
             )
             params.append(filters["sale_type"])
 
-        query = f"""
-            SELECT *
-            FROM fragrances
-            WHERE {' AND '.join(clauses)}
-            ORDER BY featured DESC, rank ASC, brand ASC, name ASC
-        """
-
-        if limit:
-            query += " LIMIT ?"
-            params.append(limit)
-
-        with self.connect() as conn:
-            fragrance_rows = conn.execute(query, params).fetchall()
-            fragrance_ids = [row["id"] for row in fragrance_rows]
-            variants_by_fragrance = self._variants_by_fragrance(conn, fragrance_ids)
-
-        return [self._serialize_fragrance(row, variants_by_fragrance.get(row["id"], [])) for row in fragrance_rows]
+        return clauses, params
 
     def get_featured(self, limit: int = 8) -> list[dict[str, Any]]:
         return self.list_fragrances(limit=limit, featured_only=True)
@@ -788,8 +836,10 @@ class Database:
 
         now = self._now()
         payment_method = customer.get("payment_method", "Cash on Delivery")
-        payment_status = "pending" if payment_method == "Bank Transfer" else "offline"
-        status = "Awaiting Transfer" if payment_method == "Bank Transfer" else "Confirmed"
+        if payment_method != "Cash on Delivery":
+            raise ValidationError("Use online checkout for this payment method.")
+        payment_status = "offline"
+        status = "Confirmed"
 
         with self.connect() as conn:
             try:
@@ -810,6 +860,8 @@ class Database:
                     gateway_payment_id="",
                     gateway_signature="",
                     payment_amount_inr=0,
+                    stock_reserved=0,
+                    reservation_expires_at="",
                     last_error="",
                 )
                 conn.commit()
@@ -836,11 +888,12 @@ class Database:
         with self.connect() as conn:
             try:
                 conn.begin_write()
+                self._deduct_stock(conn, snapshot["items"])
                 cursor_order_number = self._insert_order(
                     conn,
                     customer=customer,
                     snapshot=snapshot,
-                    payment_method="Razorpay",
+                    payment_method=customer["payment_method"],
                     payment_gateway="razorpay",
                     payment_status="created",
                     status="Pending Payment",
@@ -851,6 +904,8 @@ class Database:
                     gateway_payment_id="",
                     gateway_signature="",
                     payment_amount_inr=0,
+                    stock_reserved=1,
+                    reservation_expires_at=self._reservation_expires_at(now),
                     last_error="",
                 )
                 conn.commit()
@@ -892,33 +947,43 @@ class Database:
                         raise ValidationError("Order is missing after payment confirmation.")
                     return order
 
-                item_rows = conn.execute(
-                    """
-                    SELECT variant_id, quantity
-                    FROM order_items
-                    WHERE order_id = ?
-                    ORDER BY id ASC
-                    """,
-                    (order_row["id"],),
-                ).fetchall()
-                self._deduct_stock(conn, [dict(row) for row in item_rows], compact=True)
+                needs_stock_deduction = not int(order_row["stock_reserved"] or 0)
+                review_error = ""
+                if needs_stock_deduction:
+                    item_rows = conn.execute(
+                        """
+                        SELECT variant_id, quantity
+                        FROM order_items
+                        WHERE order_id = ?
+                        ORDER BY id ASC
+                        """,
+                        (order_row["id"],),
+                    ).fetchall()
+                    try:
+                        self._deduct_stock(conn, [dict(row) for row in item_rows], compact=True)
+                    except ValidationError as exc:
+                        review_error = f"Payment captured but stock could not be reserved automatically: {exc}"
 
                 conn.execute(
                     """
                     UPDATE orders
                     SET payment_status = 'paid',
-                        status = 'Confirmed',
+                        status = ?,
                         gateway_payment_id = ?,
                         gateway_signature = ?,
                         payment_amount_inr = total_inr,
                         paid_at = ?,
-                        last_error = ''
+                        stock_reserved = 0,
+                        reservation_expires_at = '',
+                        last_error = ?
                     WHERE id = ?
                     """,
                     (
+                        "Review Required" if review_error else "Confirmed",
                         gateway_payment_id,
                         gateway_signature,
                         self._now(),
+                        review_error,
                         order_row["id"],
                     ),
                 )
@@ -958,25 +1023,35 @@ class Database:
                 if paid_amount_subunits and paid_amount_subunits != order_row["total_inr"] * 100:
                     raise ValidationError("Webhook payment amount does not match the local order total.")
 
-                item_rows = conn.execute(
-                    "SELECT variant_id, quantity FROM order_items WHERE order_id = ? ORDER BY id ASC",
-                    (order_row["id"],),
-                ).fetchall()
-                self._deduct_stock(conn, [dict(row) for row in item_rows], compact=True)
+                needs_stock_deduction = not int(order_row["stock_reserved"] or 0)
+                review_error = ""
+                if needs_stock_deduction:
+                    item_rows = conn.execute(
+                        "SELECT variant_id, quantity FROM order_items WHERE order_id = ? ORDER BY id ASC",
+                        (order_row["id"],),
+                    ).fetchall()
+                    try:
+                        self._deduct_stock(conn, [dict(row) for row in item_rows], compact=True)
+                    except ValidationError as exc:
+                        review_error = f"Payment captured but stock could not be reserved automatically: {exc}"
                 conn.execute(
                     """
                     UPDATE orders
                     SET payment_status = 'paid',
-                        status = 'Confirmed',
+                        status = ?,
                         gateway_payment_id = ?,
                         payment_amount_inr = total_inr,
                         paid_at = ?,
-                        last_error = ''
+                        stock_reserved = 0,
+                        reservation_expires_at = '',
+                        last_error = ?
                     WHERE id = ?
                     """,
                     (
+                        "Review Required" if review_error else "Confirmed",
                         gateway_payment_id,
                         self._now(),
+                        review_error,
                         order_row["id"],
                     ),
                 )
@@ -989,15 +1064,144 @@ class Database:
 
     def mark_payment_failure(self, order_number: str, reason: str) -> None:
         with self.connect() as conn:
+            try:
+                conn.begin_write()
+                order_row = conn.execute(
+                    "SELECT * FROM orders WHERE order_number = ?",
+                    (order_number,),
+                ).fetchone()
+                if order_row and order_row["payment_status"] != "paid":
+                    self._release_reserved_stock(conn, dict(order_row))
+                    conn.execute(
+                        """
+                        UPDATE orders
+                        SET payment_status = 'failed',
+                            status = 'Payment Failed',
+                            stock_reserved = 0,
+                            reservation_expires_at = '',
+                            last_error = ?
+                        WHERE order_number = ? AND payment_status != 'paid'
+                        """,
+                        (reason[:400], order_number),
+                    )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+    def list_orders(self, limit: int = 100) -> list[dict[str, Any]]:
+        self.expire_stale_reservations()
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT order_number, customer_name, email, phone, total_inr, item_count,
+                       status, payment_method, payment_status, stock_reserved,
+                       reservation_expires_at, created_at
+                FROM orders
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def expire_stale_reservations(self) -> int:
+        now = self._now()
+        expired_count = 0
+        with self.connect() as conn:
+            try:
+                conn.begin_write()
+                rows = conn.execute(
+                    """
+                    SELECT *
+                    FROM orders
+                    WHERE payment_gateway = 'razorpay'
+                      AND payment_status = 'created'
+                      AND stock_reserved = 1
+                      AND reservation_expires_at != ''
+                      AND reservation_expires_at < ?
+                    """,
+                    (now,),
+                ).fetchall()
+                for row in rows:
+                    order = dict(row)
+                    self._release_reserved_stock(conn, order)
+                    conn.execute(
+                        """
+                        UPDATE orders
+                        SET payment_status = 'expired',
+                            status = 'Payment Expired',
+                            stock_reserved = 0,
+                            reservation_expires_at = '',
+                            last_error = 'Payment reservation expired before capture.'
+                        WHERE id = ?
+                        """,
+                        (order["id"],),
+                    )
+                    expired_count += 1
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return expired_count
+
+    def update_order_status(self, order_number: str, status: str) -> dict[str, Any]:
+        allowed_statuses = {
+            "Pending Payment",
+            "Confirmed",
+            "Packed",
+            "Shipped",
+            "Delivered",
+            "Cancelled",
+            "Review Required",
+        }
+        if status not in allowed_statuses:
+            raise ValidationError("Unsupported order status.")
+
+        with self.connect() as conn:
+            try:
+                conn.begin_write()
+                order_row = conn.execute(
+                    "SELECT * FROM orders WHERE order_number = ?",
+                    (order_number,),
+                ).fetchone()
+                if order_row is None:
+                    raise ValidationError("Order not found.")
+                order = dict(order_row)
+                if status == "Cancelled" and order["payment_status"] != "paid":
+                    self._release_reserved_stock(conn, order)
+                    conn.execute(
+                        """
+                        UPDATE orders
+                        SET status = ?,
+                            payment_status = CASE WHEN payment_status = 'created' THEN 'cancelled' ELSE payment_status END,
+                            stock_reserved = 0,
+                            reservation_expires_at = ''
+                        WHERE order_number = ?
+                        """,
+                        (status, order_number),
+                    )
+                else:
+                    conn.execute("UPDATE orders SET status = ? WHERE order_number = ?", (status, order_number))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+        order = self.get_order(order_number)
+        if order is None:
+            raise ValidationError("Order could not be loaded after update.")
+        return order
+
+    def mark_order_notified(self, order_number: str) -> None:
+        with self.connect() as conn:
             conn.execute(
                 """
                 UPDATE orders
-                SET payment_status = 'failed',
-                    status = 'Payment Failed',
-                    last_error = ?
-                WHERE order_number = ? AND payment_status != 'paid'
+                SET notification_sent_at = ?
+                WHERE order_number = ? AND notification_sent_at = ''
                 """,
-                (reason[:400], order_number),
+                (self._now(), order_number),
             )
             conn.commit()
 
@@ -1020,11 +1224,20 @@ class Database:
         order = dict(order_row)
         order["items"] = [dict(row) for row in item_rows]
         order["can_retry_payment"] = order["payment_gateway"] == "razorpay" and order["payment_status"] != "paid"
+        order["public_path"] = f"/order/{order['order_number']}/{order['public_token']}"
+        return order
+
+    def get_public_order(self, order_number: str, public_token: str) -> dict[str, Any] | None:
+        order = self.get_order(order_number)
+        if not order or not secrets.compare_digest(order.get("public_token", ""), public_token):
+            return None
         return order
 
     def _build_checkout_snapshot(self, items: list[dict[str, Any]]) -> dict[str, Any]:
         if not items:
             raise ValidationError("Your cart is empty.")
+
+        self.expire_stale_reservations()
 
         with self.connect() as conn:
             normalized_items: list[dict[str, Any]] = []
@@ -1105,21 +1318,26 @@ class Database:
         gateway_payment_id: str,
         gateway_signature: str,
         payment_amount_inr: int,
+        stock_reserved: int,
+        reservation_expires_at: str,
         last_error: str,
     ) -> str:
         order_number = self._generate_order_number(conn)
+        public_token = self._generate_public_token(conn)
         conn.execute(
             """
             INSERT INTO orders (
-                order_number, customer_name, email, phone, shipping_line1, shipping_line2,
+                order_number, public_token, customer_name, email, phone, shipping_line1, shipping_line2,
                 city, state, postal_code, country, payment_method, payment_gateway, payment_status,
                 gateway_order_id, gateway_payment_id, gateway_signature, payment_amount_inr,
                 delivery_notes, subtotal_inr, shipping_inr, total_inr, item_count, status,
-                initiated_at, paid_at, last_error, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                stock_reserved, reservation_expires_at, initiated_at, paid_at, notification_sent_at,
+                last_error, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 order_number,
+                public_token,
                 customer["customer_name"],
                 customer["email"],
                 customer["phone"],
@@ -1142,8 +1360,11 @@ class Database:
                 snapshot["total_inr"],
                 snapshot["item_count"],
                 status,
+                stock_reserved,
+                reservation_expires_at,
                 initiated_at,
                 paid_at,
+                "",
                 last_error,
                 created_at,
             ),
@@ -1211,6 +1432,20 @@ class Database:
                 raise ValidationError(
                     f"Stock changed while confirming {row['name']} {row['size_label']}. Please try again."
                 )
+
+    def _release_reserved_stock(self, conn: DatabaseConnection, order: dict[str, Any]) -> None:
+        if not int(order.get("stock_reserved") or 0):
+            return
+
+        item_rows = conn.execute(
+            "SELECT variant_id, quantity FROM order_items WHERE order_id = ? ORDER BY id ASC",
+            (order["id"],),
+        ).fetchall()
+        for item in item_rows:
+            conn.execute(
+                "UPDATE variants SET stock_units = stock_units + ? WHERE id = ?",
+                (item["quantity"], item["variant_id"]),
+            )
 
     def _variants_by_fragrance(
         self, conn: DatabaseConnection, fragrance_ids: list[int]
@@ -1327,6 +1562,8 @@ class Database:
         )
         customer["delivery_notes"] = str(customer.get("delivery_notes", "")).strip()
         customer["payment_method"] = customer["payment_method"].strip()
+        if customer["payment_method"] not in {"Cash on Delivery", "UPI", "Netbanking", "Credit/Debit Card"}:
+            raise ValidationError("Unsupported payment method.")
 
     def _generate_order_number(self, conn: DatabaseConnection) -> str:
         while True:
@@ -1339,6 +1576,26 @@ class Database:
             ).fetchone()
             if not exists:
                 return order_number
+
+    def _reservation_expires_at(self, now: str | None = None) -> str:
+        base = datetime.utcnow()
+        if now:
+            try:
+                base = datetime.fromisoformat(now.removesuffix("Z"))
+            except ValueError:
+                pass
+        expires_at = base + timedelta(minutes=max(5, self.settings.payment_reservation_minutes))
+        return expires_at.replace(microsecond=0).isoformat() + "Z"
+
+    def _generate_public_token(self, conn: DatabaseConnection) -> str:
+        while True:
+            token = secrets.token_urlsafe(24)
+            exists = conn.execute(
+                "SELECT 1 FROM orders WHERE public_token = ? LIMIT 1",
+                (token,),
+            ).fetchone()
+            if not exists:
+                return token
 
     def _now(self) -> str:
         return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"

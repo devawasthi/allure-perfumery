@@ -57,23 +57,16 @@
           <label>
             Payment method
             <select name="payment_method" required>
-              {% if payment.razorpay_enabled %}
-                <option value="Razorpay">Razorpay</option>
-              {% endif %}
-              {% if payment.manual_checkout_enabled %}
-                <option value="Cash on Delivery">Cash on Delivery</option>
-                <option value="Bank Transfer">Bank Transfer</option>
-              {% endif %}
+              <option value="Cash on Delivery" {% if not payment.manual_checkout_enabled %}disabled{% endif %}>
+                Cash on Delivery
+              </option>
+              <option value="UPI" {% if not payment.razorpay_enabled %}disabled{% endif %}>UPI</option>
+              <option value="Netbanking" {% if not payment.razorpay_enabled %}disabled{% endif %}>Netbanking</option>
+              <option value="Credit/Debit Card" {% if not payment.razorpay_enabled %}disabled{% endif %}>
+                Credit/Debit Card
+              </option>
             </select>
           </label>
-        </div>
-
-        <div class="checkout-note" data-checkout-method-note>
-          {% if payment.razorpay_enabled %}
-            Razorpay will open a secure checkout for cards, UPI, wallets, and netbanking.
-          {% else %}
-            Razorpay is not configured yet on this deployment, so only manual checkout is currently available.
-          {% endif %}
         </div>
 
         <label>

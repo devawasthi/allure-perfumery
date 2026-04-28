@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="utility-hero">
+    <p class="section-kicker">Admin</p>
+    <h1>Order desk</h1>
+    <p>Protected access for reviewing customer orders and fulfilment status.</p>
+  </section>
+
+  <section class="admin-shell">
+    <article class="order-card admin-card">
+      {% if not admin_enabled %}
+        <p class="checkout-form__status is-error">Admin access is disabled until ADMIN_TOKEN is configured.</p>
+      {% else %}
+        <form class="checkout-form" action="/admin/login" method="post">
+          <label>
+            Admin token
+            <input type="password" name="admin_token" autocomplete="current-password" required />
+          </label>
+          {% if error %}
+            <p class="checkout-form__status is-error">{{ error }}</p>
+          {% endif %}
+          <button class="button" type="submit">Enter admin</button>
+        </form>
+      {% endif %}
+    </article>
+  </section>
+{% endblock %}

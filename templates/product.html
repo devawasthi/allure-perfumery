@@ -15,9 +15,7 @@
         loading="eager"
       />
       <div class="product-hero__bottle">
-        <span>{{ fragrance.brand }}</span>
-        <strong>{{ fragrance.name }}</strong>
-        <small>{{ fragrance.concentration }}</small>
+        <strong>{{ fragrance.concentration }}</strong>
       </div>
     </div>
 
@@ -27,16 +25,6 @@
       <p class="product-hero__meta">
         {{ fragrance.gender|titleize_enum }} &middot; {{ fragrance.family|title }} &middot; {{ fragrance.origin }}
       </p>
-      <p class="product-hero__description">{{ fragrance.description }}</p>
-      <div class="product-hero__signature">
-        <strong>Signature mood</strong>
-        <span>{{ fragrance.signature }}</span>
-      </div>
-      <div class="product-hero__chips">
-        {% for type in fragrance.sale_types %}
-          <span>{{ type|titleize_enum }}</span>
-        {% endfor %}
-      </div>
       <div class="product-hero__pricing">
         <small>Starts from</small>
         <strong>{{ fragrance.starting_price|money }}</strong>
@@ -72,16 +60,14 @@
   </section>
 
   <section class="offer-section">
-    <div class="section-heading">
-      <p class="section-kicker">Available Formats</p>
-      <h2>Choose the way you want to own {{ fragrance.name }}.</h2>
+    <div class="section-heading section-heading--center">
+      <p class="section-kicker">Available Sizes</p>
     </div>
     <div class="offer-grid">
       {% for variant in fragrance.variants %}
         <article class="offer-card reveal" data-reveal>
           <span class="offer-card__badge">{{ variant.badge }}</span>
           <h3>{{ variant.size_label }}</h3>
-          <p>{{ variant.statement }}</p>
           <div class="offer-card__row">
             <strong>{{ variant.price_inr|money }}</strong>
             <span>{{ variant.stock_units }} in stock</span>
@@ -102,9 +88,8 @@
 
   {% if related_items %}
     <section class="product-section">
-      <div class="section-heading">
+      <div class="section-heading section-heading--center">
         <p class="section-kicker">Related Signatures</p>
-        <h2>Keep the same energy, explore a nearby profile.</h2>
       </div>
       <div class="product-grid">
         {% for item in related_items %}

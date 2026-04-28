@@ -1,28 +1,12 @@
 {% extends "base.html" %}
 
 {% block content %}
-  <section class="catalog-hero">
-    <div>
-      <p class="section-kicker">Catalog</p>
-      <h1>The full fragrance wall, ready for retail, decants, and partials.</h1>
-      <p>
-        Filter by brand, gender, sale type, collection, or fragrance family to move through the
-        catalog like a serious perfume buyer rather than a casual browser.
-      </p>
-    </div>
-    <div class="catalog-hero__stats">
-      <div><strong>{{ catalog_items|length }}</strong><span>results</span></div>
-      <div><strong>{{ filters.brands|length }}</strong><span>brands</span></div>
-      <div><strong>{{ filters.sale_types|length }}</strong><span>formats</span></div>
-    </div>
-  </section>
-
-  <section class="catalog-layout">
+  <section class="catalog-layout catalog-layout--minimal">
     <aside class="filter-panel reveal" data-reveal>
       <form action="/catalog" method="get" class="filter-form">
         <label>
           Search
-          <input type="search" name="search" value="{{ active_filters.search }}" placeholder="Search by fragrance or brand" />
+          <input type="search" name="search" value="{{ active_filters.search }}" placeholder="Search by fragrance or house" />
         </label>
 
         <label>
@@ -50,9 +34,9 @@
         </label>
 
         <label>
-          Brand
+          House
           <select name="brand">
-            <option value="">All brands</option>
+            <option value="">All houses</option>
             {% for option in filters.brands %}
               <option value="{{ option }}" {% if active_filters.brand == option %}selected{% endif %}>
                 {{ option }}
@@ -74,9 +58,9 @@
         </label>
 
         <label>
-          Format
+          Type
           <select name="sale_type">
-            <option value="">All formats</option>
+            <option value="">All types</option>
             {% for option in filters.sale_types %}
               <option value="{{ option }}" {% if active_filters.sale_type == option %}selected{% endif %}>
                 {{ option|title }}
@@ -93,13 +77,9 @@
     </aside>
 
     <div>
-      <div class="catalog-toolbar">
-        <p>
-          Showing <strong>{{ catalog_items|length }}</strong> catalog entries
-          {% if active_filters.search %}
-            for "{{ active_filters.search }}"
-          {% endif %}
-        </p>
+      <div class="catalog-status">
+        <span>{{ catalog_total }} fragrances</span>
+        <span>Page {{ pagination.page }} of {{ pagination.total_pages }}</span>
       </div>
 
       {% if catalog_items %}
@@ -108,10 +88,22 @@
             {% include "_product_card.html" %}
           {% endfor %}
         </div>
+        {% if pagination.total_pages > 1 %}
+          <nav class="catalog-pagination" aria-label="Catalog pages">
+            {% if pagination.has_previous %}
+              <a class="button button--ghost" href="{{ pagination.previous_href }}">Previous</a>
+            {% else %}
+              <span></span>
+            {% endif %}
+            <span>{{ pagination.page }} / {{ pagination.total_pages }}</span>
+            {% if pagination.has_next %}
+              <a class="button button--ghost" href="{{ pagination.next_href }}">Next</a>
+            {% endif %}
+          </nav>
+        {% endif %}
       {% else %}
         <div class="empty-state reveal" data-reveal>
-          <h2>No fragrances matched that filter combination.</h2>
-          <p>Try broadening the brand, format, or gender filters to reopen the catalog.</p>
+          <h2>No fragrances matched.</h2>
           <a class="button" href="/catalog">Return to full catalog</a>
         </div>
       {% endif %}

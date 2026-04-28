@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="utility-hero">
+    <p class="section-kicker">Admin</p>
+    <h1>Orders</h1>
+    <p>Recent orders, payment state, and fulfilment status.</p>
+  </section>
+
+  <section class="admin-toolbar">
+    <form action="/admin/logout" method="post">
+      <button class="button button--ghost" type="submit">Logout</button>
+    </form>
+  </section>
+
+  <section class="order-card order-card--full">
+    <div class="admin-order-list">
+      {% for order in orders %}
+        <a class="admin-order-row" href="/admin/orders/{{ order.order_number }}">
+          <div>
+            <strong>{{ order.order_number }}</strong>
+            <span>{{ order.customer_name }} &middot; {{ order.email }}</span>
+          </div>
+          <div>
+            <strong>{{ order.total_inr|money }}</strong>
+            <span>{{ order.item_count }} item(s)</span>
+          </div>
+          <div>
+            <strong>{{ order.status }}</strong>
+            <span>{{ order.payment_method }} &middot; {{ order.payment_status|titleize_enum }}</span>
+          </div>
+        </a>
+      {% else %}
+        <p class="checkout-form__status">No orders yet.</p>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

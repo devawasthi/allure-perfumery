@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import logging
 import mimetypes
 import os
+import secrets
 import time
 from dataclasses import dataclass, field
 from http import HTTPStatus
 from pathlib import Path
 from socketserver import ThreadingMixIn
-from urllib.parse import parse_qs, unquote
+from urllib.parse import parse_qs, unquote, urlencode
 from wsgiref.simple_server import WSGIRequestHandler, WSGIServer, make_server
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -18,6 +20,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from perfumery_app.artwork import build_fragrance_artwork
 from perfumery_app.config import load_settings
 from perfumery_app.database import Database, ValidationError
+from perfumery_app.notifications import OrderNotifier
 from perfumery_app.payments import PaymentGatewayError, RazorpayClient
 
 try:
@@ -31,6 +34,8 @@ BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
 
 settings = load_settings()
+if settings.is_production and settings.razorpay_enabled and not settings.razorpay_webhook_secret:
+    raise RuntimeError("RAZORPAY_WEBHOOK_SECRET is required in production when Razorpay is enabled.")
 
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
@@ -54,6 +59,8 @@ ASSET_VERSION = os.getenv("ASSET_VERSION", "").strip() or build_asset_version()
 db = Database(DATABASE_PATH, settings)
 db.initialize()
 razorpay = RazorpayClient(settings.razorpay_key_id, settings.razorpay_key_secret)
+notifier = OrderNotifier(settings)
+ONLINE_PAYMENT_METHODS = {"UPI", "Netbanking", "Credit/Debit Card"}
 
 env = Environment(
     loader=FileSystemLoader(str(TEMPLATES_DIR)),
@@ -77,6 +84,13 @@ def titleize_enum(value: str) -> str:
 
 env.filters["money"] = money
 env.filters["titleize_enum"] = titleize_enum
+
+
+def notify_order_once(order: dict) -> None:
+    if order.get("notification_sent_at"):
+        return
+    if notifier.send_order_received(order):
+        db.mark_order_notified(order["order_number"])
 
 
 def first_value(query: dict[str, list[str]], key: str) -> str:
@@ -232,6 +246,50 @@ class PerfumeryApplication:
                 status=HTTPStatus.OK if ready else HTTPStatus.SERVICE_UNAVAILABLE,
             )
 
+        if path == "/admin/login":
+            context = {
+                **self.get_site_context(path),
+                "page_title": "Admin login",
+                "admin_enabled": bool(settings.admin_token),
+                "error": "",
+            }
+            return self.html_response(render_template("admin_login.html", context))
+
+        if path == "/admin":
+            if not self.is_admin_request(request):
+                return self.redirect_response("/admin/login")
+            context = {
+                **self.get_site_context(path),
+                "page_title": "Admin orders",
+                "orders": db.list_orders(),
+                "csrf_token": self.admin_csrf_token(request),
+            }
+            return self.html_response(render_template("admin_orders.html", context))
+
+        if path.startswith("/admin/orders/"):
+            if not self.is_admin_request(request):
+                return self.redirect_response("/admin/login")
+            order_number = path.removeprefix("/admin/orders/").split("/", 1)[0]
+            order = db.get_order(order_number)
+            if order is None:
+                return self.render_404(path)
+            context = {
+                **self.get_site_context(path),
+                "page_title": f"Admin {order_number}",
+                "order": order,
+                "csrf_token": self.admin_csrf_token(request),
+                "order_statuses": [
+                    "Pending Payment",
+                    "Confirmed",
+                    "Packed",
+                    "Shipped",
+                    "Delivered",
+                    "Cancelled",
+                    "Review Required",
+                ],
+            }
+            return self.html_response(render_template("admin_order.html", context))
+
         if path == "/api/fragrances":
             filters = self.extract_filters(query)
             return self.json_response({"filters": filters, "items": db.list_fragrances(filters)})
@@ -250,7 +308,8 @@ class PerfumeryApplication:
 
         if path.startswith("/api/orders/"):
             order_number = path.removeprefix("/api/orders/")
-            order = db.get_order(order_number)
+            public_token = first_value(query, "token")
+            order = db.get_public_order(order_number, public_token) if public_token else None
             if order is None:
                 return self.json_response({"error": "Order not found."}, status=HTTPStatus.NOT_FOUND)
             return self.json_response(order)
@@ -273,11 +332,21 @@ class PerfumeryApplication:
 
         if path == "/catalog":
             filters = self.extract_filters(query)
-            items = db.list_fragrances(filters)
+            per_page = 48
+            try:
+                page = max(1, int(first_value(query, "page") or "1"))
+            except ValueError:
+                page = 1
+            total_items = db.count_fragrances(filters)
+            total_pages = max(1, (total_items + per_page - 1) // per_page)
+            page = min(page, total_pages)
+            items = db.list_fragrances(filters, limit=per_page, offset=(page - 1) * per_page)
             context = {
                 **self.get_site_context(path),
                 "page_title": "Perfume catalog",
                 "catalog_items": items,
+                "catalog_total": total_items,
+                "pagination": self.catalog_pagination(filters, page, total_pages),
                 "filters": db.list_filters(),
                 "active_filters": filters,
             }
@@ -311,8 +380,10 @@ class PerfumeryApplication:
             return self.html_response(render_template("checkout.html", context))
 
         if path.startswith("/order/"):
-            order_number = path.removeprefix("/order/")
-            order = db.get_order(order_number)
+            order_parts = path.removeprefix("/order/").split("/", 1)
+            order_number = order_parts[0]
+            public_token = order_parts[1] if len(order_parts) == 2 else ""
+            order = db.get_public_order(order_number, public_token) if public_token else None
             if order is None:
                 return self.render_404(path)
             context = {
@@ -327,13 +398,54 @@ class PerfumeryApplication:
     def handle_post(self, request: Request) -> Response:
         path = request.path
 
+        if path == "/admin/login":
+            fields = self.read_form_body(request)
+            submitted_token = fields.get("admin_token", "")
+            if settings.admin_token and secrets.compare_digest(submitted_token, settings.admin_token):
+                return self.redirect_response(
+                    "/admin",
+                    headers=[("Set-Cookie", self.build_admin_cookie())],
+                )
+            context = {
+                **self.get_site_context(path),
+                "page_title": "Admin login",
+                "admin_enabled": bool(settings.admin_token),
+                "error": "Invalid admin token." if settings.admin_token else "Admin token is not configured.",
+            }
+            return self.html_response(render_template("admin_login.html", context), status=HTTPStatus.UNAUTHORIZED)
+
+        if path == "/admin/logout":
+            return self.redirect_response(
+                "/",
+                headers=[("Set-Cookie", self.clear_admin_cookie())],
+            )
+
+        if path.startswith("/admin/orders/") and path.endswith("/status"):
+            if not self.is_admin_request(request):
+                return self.redirect_response("/admin/login")
+            fields = self.read_form_body(request)
+            if not secrets.compare_digest(fields.get("csrf_token", ""), self.admin_csrf_token(request)):
+                return self.json_response({"error": "Invalid admin form token."}, status=HTTPStatus.FORBIDDEN)
+            order_number = path.removeprefix("/admin/orders/").removesuffix("/status").strip("/")
+            try:
+                db.update_order_status(order_number, fields.get("status", ""))
+            except ValidationError as exc:
+                return self.json_response({"error": str(exc)}, status=HTTPStatus.UNPROCESSABLE_ENTITY)
+            return self.redirect_response(f"/admin/orders/{order_number}")
+
         if path == "/api/orders":
+            if not settings.enable_manual_checkout:
+                return self.json_response(
+                    {"error": "Manual checkout is disabled on this deployment."},
+                    status=HTTPStatus.FORBIDDEN,
+                )
             try:
                 payload = self.read_json_body(request)
                 customer = payload.get("customer") or {}
-                if customer.get("payment_method") == "Razorpay":
+                if customer.get("payment_method") in ONLINE_PAYMENT_METHODS:
                     raise ValidationError("Use the Razorpay checkout flow for online payments.")
                 order = db.create_order(payload)
+                notify_order_once(order)
                 return self.json_response({"order": order}, status=HTTPStatus.CREATED)
             except ValidationError as exc:
                 return self.json_response({"error": str(exc)}, status=HTTPStatus.UNPROCESSABLE_ENTITY)
@@ -353,7 +465,8 @@ class PerfumeryApplication:
                 payload = self.read_json_body(request)
                 customer = payload.get("customer") or {}
                 items = payload.get("items") or []
-                customer["payment_method"] = "Razorpay"
+                if customer.get("payment_method") not in ONLINE_PAYMENT_METHODS:
+                    raise ValidationError("Please choose UPI, netbanking, or card for online payment.")
                 snapshot = db.preview_order(items)
                 gateway_order = razorpay.create_order(
                     amount_subunits=snapshot["total_inr"] * 100,
@@ -427,6 +540,7 @@ class PerfumeryApplication:
                     gateway_payment_id=payment_id,
                     gateway_signature=signature,
                 )
+                notify_order_once(final_order)
                 return self.json_response({"order": final_order}, status=HTTPStatus.OK)
             except ValidationError as exc:
                 return self.json_response({"error": str(exc)}, status=HTTPStatus.UNPROCESSABLE_ENTITY)
@@ -438,28 +552,51 @@ class PerfumeryApplication:
                     status=HTTPStatus.INTERNAL_SERVER_ERROR,
                 )
 
+        if path == "/api/payments/razorpay/failure":
+            try:
+                payload = self.read_json_body(request)
+                local_order_number = str(payload.get("local_order_number", "")).strip()
+                received_order_id = str(payload.get("razorpay_order_id", "")).strip()
+                reason = str(payload.get("reason", "Payment failed before capture.")).strip()
+
+                order = db.get_order(local_order_number)
+                if order is None or order["gateway_order_id"] != received_order_id:
+                    raise ValidationError("Pending order not found.")
+                db.mark_payment_failure(local_order_number, reason)
+                return self.json_response({"status": "recorded"}, status=HTTPStatus.OK)
+            except ValidationError as exc:
+                return self.json_response({"error": str(exc)}, status=HTTPStatus.UNPROCESSABLE_ENTITY)
+            except json.JSONDecodeError:
+                return self.json_response({"error": "Invalid JSON body."}, status=HTTPStatus.BAD_REQUEST)
+
         if path == "/api/webhooks/razorpay":
             signature = request.headers.get("x-razorpay-signature", "")
             event_type = ""
 
-            if settings.razorpay_webhook_secret:
-                if not razorpay.verify_webhook_signature(
-                    body=request.body,
-                    signature=signature,
-                    webhook_secret=settings.razorpay_webhook_secret,
-                ):
-                    return self.json_response({"error": "Invalid webhook signature."}, status=HTTPStatus.UNAUTHORIZED)
+            if not settings.razorpay_webhook_secret:
+                return self.json_response(
+                    {"error": "Razorpay webhook secret is not configured."},
+                    status=HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+            if not razorpay.verify_webhook_signature(
+                body=request.body,
+                signature=signature,
+                webhook_secret=settings.razorpay_webhook_secret,
+            ):
+                return self.json_response({"error": "Invalid webhook signature."}, status=HTTPStatus.UNAUTHORIZED)
 
             try:
                 payload = json.loads(request.body.decode("utf-8") or "{}")
                 event_type = payload.get("event", "")
                 entity = ((payload.get("payload") or {}).get("payment") or {}).get("entity") or {}
                 if event_type in {"payment.captured", "order.paid"} and entity.get("order_id"):
-                    db.finalize_razorpay_order_from_webhook(
+                    final_order = db.finalize_razorpay_order_from_webhook(
                         gateway_order_id=entity["order_id"],
                         gateway_payment_id=entity.get("id", ""),
                         paid_amount_subunits=int(entity.get("amount", 0) or 0),
                     )
+                    if final_order:
+                        notify_order_once(final_order)
                 return self.json_response({"status": "accepted", "event": event_type}, status=HTTPStatus.OK)
             except ValidationError as exc:
                 return self.json_response({"error": str(exc)}, status=HTTPStatus.UNPROCESSABLE_ENTITY)
@@ -478,6 +615,23 @@ class PerfumeryApplication:
             "collection_type": first_value(query, "collection_type"),
             "family": first_value(query, "family"),
             "sale_type": first_value(query, "sale_type"),
+        }
+
+    def catalog_pagination(self, filters: dict[str, str], page: int, total_pages: int) -> dict[str, Any]:
+        def href(target_page: int) -> str:
+            params = {key: value for key, value in filters.items() if value}
+            if target_page > 1:
+                params["page"] = str(target_page)
+            query = urlencode(params)
+            return f"/catalog?{query}" if query else "/catalog"
+
+        return {
+            "page": page,
+            "total_pages": total_pages,
+            "has_previous": page > 1,
+            "has_next": page < total_pages,
+            "previous_href": href(page - 1) if page > 1 else "",
+            "next_href": href(page + 1) if page < total_pages else "",
         }
 
     def get_site_context(self, path: str) -> dict:
@@ -524,6 +678,66 @@ class PerfumeryApplication:
         body = request.body or b"{}"
         return json.loads(body.decode("utf-8"))
 
+    def read_form_body(self, request: Request) -> dict[str, str]:
+        fields = parse_qs(request.body.decode("utf-8"), keep_blank_values=True)
+        return {key: values[0] if values else "" for key, values in fields.items()}
+
+    def admin_cookie_signature(self) -> str:
+        if not settings.admin_token:
+            return ""
+        return hmac.new(
+            settings.admin_token.encode("utf-8"),
+            b"the-scentist-admin",
+            hashlib.sha256,
+        ).hexdigest()
+
+    def admin_csrf_token(self, request: Request) -> str:
+        cookie = self.admin_cookie_value(request)
+        if not cookie:
+            return ""
+        return hmac.new(
+            settings.admin_token.encode("utf-8"),
+            f"csrf:{cookie}".encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+
+    def admin_cookie_value(self, request: Request) -> str:
+        cookie_header = request.headers.get("cookie", "")
+        for part in cookie_header.split(";"):
+            name, _, value = part.strip().partition("=")
+            if name == "ts_admin":
+                return value
+        return ""
+
+    def is_admin_request(self, request: Request) -> bool:
+        if not settings.admin_token:
+            return False
+        return secrets.compare_digest(self.admin_cookie_value(request), self.admin_cookie_signature())
+
+    def build_admin_cookie(self) -> str:
+        attributes = [
+            f"ts_admin={self.admin_cookie_signature()}",
+            "Path=/admin",
+            "HttpOnly",
+            "SameSite=Lax",
+            "Max-Age=28800",
+        ]
+        if settings.enforce_hsts:
+            attributes.append("Secure")
+        return "; ".join(attributes)
+
+    def clear_admin_cookie(self) -> str:
+        attributes = [
+            "ts_admin=",
+            "Path=/admin",
+            "HttpOnly",
+            "SameSite=Lax",
+            "Max-Age=0",
+        ]
+        if settings.enforce_hsts:
+            attributes.append("Secure")
+        return "; ".join(attributes)
+
     def html_response(
         self,
         body: bytes,
@@ -551,6 +765,19 @@ class PerfumeryApplication:
             body=body,
             content_type="application/json; charset=utf-8",
             headers=headers or [],
+        )
+
+    def redirect_response(
+        self,
+        location: str,
+        *,
+        headers: list[tuple[str, str]] | None = None,
+    ) -> Response:
+        return Response(
+            status=HTTPStatus.SEE_OTHER,
+            body=b"",
+            content_type="text/plain; charset=utf-8",
+            headers=[("Location", location), *(headers or [])],
         )
 
     def bytes_response(

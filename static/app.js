@@ -1,4 +1,5 @@
 const CART_KEY = "the-scentist-cart-v1";
+const THEME_KEY = "the-scentist-theme";
 const SHIPPING_FEE = 350;
 const FREE_SHIPPING_THRESHOLD = 12500;
 
@@ -22,6 +23,36 @@ function showToast(message) {
     node.style.transform = "translateY(12px)";
   }, 2600);
   window.setTimeout(() => node.remove(), 3200);
+}
+
+function preferredTheme() {
+  const savedTheme = window.localStorage.getItem(THEME_KEY);
+  if (savedTheme === "light" || savedTheme === "dark") return savedTheme;
+  return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+
+function applyTheme(theme) {
+  const nextTheme = theme === "light" ? "light" : "dark";
+  document.documentElement.dataset.theme = nextTheme;
+  document.querySelectorAll("[data-theme-toggle]").forEach((button) => {
+    button.setAttribute("aria-label", `Switch to ${nextTheme === "light" ? "dark" : "light"} mode`);
+    button.setAttribute("aria-pressed", nextTheme === "light" ? "true" : "false");
+  });
+  document.querySelectorAll("[data-theme-icon]").forEach((node) => {
+    node.textContent = nextTheme === "light" ? "☾" : "☼";
+  });
+}
+
+function mountThemeToggle() {
+  applyTheme(preferredTheme());
+  document.querySelectorAll("[data-theme-toggle]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const currentTheme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+      const nextTheme = currentTheme === "light" ? "dark" : "light";
+      window.localStorage.setItem(THEME_KEY, nextTheme);
+      applyTheme(nextTheme);
+    });
+  });
 }
 
 function readCart() {
@@ -190,8 +221,8 @@ async function mountCheckoutPage() {
   const totalNode = root.querySelector("[data-checkout-total]");
   const submitButton = root.querySelector("[data-checkout-submit]");
   const methodSelect = form?.querySelector('select[name="payment_method"]');
-  const methodNote = root.querySelector("[data-checkout-method-note]");
   const razorpayEnabled = root.dataset.razorpayEnabled === "true";
+  const onlinePaymentMethods = new Set(["UPI", "Netbanking", "Credit/Debit Card"]);
   const cart = readCart();
 
   if (!cart.length) {
@@ -325,30 +356,12 @@ async function mountCheckoutPage() {
 
   function refreshMethodCopy() {
     const method = methodSelect.value;
-    if (method === "Razorpay") {
-      submitButton.textContent = "Continue to Razorpay";
-      if (methodNote) {
-        methodNote.textContent = razorpayEnabled
-          ? "Razorpay will open a secure hosted window for UPI, cards, wallets, and netbanking."
-          : "Razorpay is not configured on this deployment yet.";
-      }
-      return;
-    }
-
-    if (method === "Bank Transfer") {
-      submitButton.textContent = "Place transfer order";
-      if (methodNote) {
-        methodNote.textContent =
-          "A bank transfer order is placed immediately and stored in the database for manual follow-up.";
-      }
+    if (onlinePaymentMethods.has(method)) {
+      submitButton.textContent = "Continue to payment";
       return;
     }
 
     submitButton.textContent = "Place order";
-    if (methodNote) {
-      methodNote.textContent =
-        "Cash on Delivery places the order instantly and reserves the selected inventory.";
-    }
   }
 
   refreshMethodCopy();
@@ -371,12 +384,13 @@ async function mountCheckoutPage() {
     };
 
     submitButton.disabled = true;
-    setStatus(customer.payment_method === "Razorpay" ? "Preparing payment..." : "Placing order...");
+    const isOnlinePayment = onlinePaymentMethods.has(customer.payment_method);
+    setStatus(isOnlinePayment ? "Preparing payment..." : "Placing order...");
 
     try {
-      if (customer.payment_method === "Razorpay") {
+      if (isOnlinePayment) {
         if (!razorpayEnabled || typeof window.Razorpay !== "function") {
-          throw new Error("Razorpay is not available on this deployment.");
+          throw new Error("Online payment is not available on this deployment.");
         }
 
         const checkoutPayload = await fetchJson("/api/checkout/razorpay-order", {
@@ -431,7 +445,7 @@ async function mountCheckoutPage() {
                 }),
               });
               writeCart([]);
-              window.location.assign(`/order/${verification.order.order_number}`);
+              window.location.assign(verification.order.public_path || `/order/${verification.order.order_number}`);
             } catch (error) {
               setStatus(error.message, true);
               submitButton.disabled = false;
@@ -439,10 +453,25 @@ async function mountCheckoutPage() {
           },
         });
 
-        razorpayInstance.on("payment.failed", (failure) => {
+        razorpayInstance.on("payment.failed", async (failure) => {
           const description =
             failure?.error?.description || "Payment failed before verification could complete.";
-          setStatus(`${description} Pending order ${checkout.local_order_number} remains saved.`, true);
+          try {
+            await fetchJson("/api/payments/razorpay/failure", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                local_order_number: checkout.local_order_number,
+                razorpay_order_id: checkout.gateway_order_id,
+                reason: description,
+              }),
+            });
+          } catch {
+            // The admin order list will still show the pending order if this update fails.
+          }
+          setStatus(`${description} The reserved stock has been released; please try checkout again.`, true);
           submitButton.disabled = false;
         });
 
@@ -459,7 +488,7 @@ async function mountCheckoutPage() {
       });
 
       writeCart([]);
-      window.location.assign(`/order/${result.order.order_number}`);
+      window.location.assign(result.order.public_path || `/order/${result.order.order_number}`);
     } catch (error) {
       setStatus(error.message, true);
       submitButton.disabled = false;
@@ -525,6 +554,7 @@ document.addEventListener("click", (event) => {
 });
 
 updateCartCount();
+mountThemeToggle();
 mountReveals();
 mountGatewayTilt();
 mountCartPage();

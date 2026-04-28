@@ -1,8 +1,8 @@
 services:
   - type: web
-    name: allure-alchemy
+    name: the-scentist
     runtime: docker
-    plan: free
+    plan: starter
     region: singapore
     healthCheckPath: /readyz
     autoDeployTrigger: commit
@@ -16,7 +16,7 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: AUTO_SEED_CATALOG
-        value: "true"
+        value: "false"
       - key: ENABLE_MANUAL_CHECKOUT
         value: "true"
       - key: STORE_CURRENCY
@@ -63,3 +63,21 @@ services:
         sync: false
       - key: RAZORPAY_WEBHOOK_SECRET
         sync: false
+      - key: PAYMENT_RESERVATION_MINUTES
+        value: "30"
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: NOTIFICATION_FROM_EMAIL
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_USE_TLS
+        value: "true"

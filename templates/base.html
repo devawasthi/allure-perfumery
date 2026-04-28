@@ -6,12 +6,23 @@
     <title>{{ page_title }} | {{ site_name }}</title>
     <meta
       name="description"
-      content="The Scentist brings together elite niche houses, luxury designers, decants, partials, and a real order database in one polished storefront."
+      content="The Scentist curates luxury niche and designer fragrances in retail bottles, discovery sizes, testers, and collector finds."
     />
+    <script>
+      (() => {
+        try {
+          const savedTheme = window.localStorage.getItem("the-scentist-theme");
+          const prefersLight = window.matchMedia("(prefers-color-scheme: light)").matches;
+          document.documentElement.dataset.theme = savedTheme || (prefersLight ? "light" : "dark");
+        } catch {
+          document.documentElement.dataset.theme = "dark";
+        }
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@300;400;500&family=Bodoni+Moda:opsz,wght@6..96,500;6..96,600&family=Tenor+Sans&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@300;400;500&family=Bodoni+Moda:opsz,wght@6..96,400;6..96,700&family=Cormorant+Garamond:ital,wght@0,300..700;1,300..700&family=Italiana&family=Tenor+Sans&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/static/styles.css?v={{ asset_version }}" />
@@ -24,8 +35,8 @@
     <header class="site-header">
       <div class="announcement-bar">
         <span>Verified stock</span>
-        <span>Retail bottles, 5ml to 30ml decants, and partials</span>
-        <span>Orders stored with live inventory tracking</span>
+        <span>Pan India Delivery </span>
+        <span>Free Shipping on orders above Rs.2500</span>
       </div>
       <div class="nav-wrap">
         <a class="brand-mark" href="/" aria-label="{{ site_name }} home">
@@ -52,6 +63,9 @@
             Cart
             <span data-cart-count>0</span>
           </a>
+          <button class="theme-toggle" type="button" data-theme-toggle aria-label="Switch color theme">
+            <span data-theme-icon aria-hidden="true">◐</span>
+          </button>
         </div>
       </div>
     </header>
