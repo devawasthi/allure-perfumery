@@ -17,6 +17,9 @@
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
+    {% if preview_label %}
+      <div class="preview-badge">{{ preview_label }}</div>
+    {% endif %}
     <div class="page-shell"></div>
     <header class="site-header">
       <div class="announcement-bar">

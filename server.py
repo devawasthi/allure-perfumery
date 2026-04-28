@@ -34,7 +34,8 @@ settings = load_settings()
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
 ASSETS_DIR = STATIC_DIR / "assets"
-DATABASE_PATH = BASE_DIR / "data" / "perfumery.sqlite3"
+configured_sqlite_path = Path(settings.sqlite_database_path or "data/perfumery.sqlite3")
+DATABASE_PATH = configured_sqlite_path if configured_sqlite_path.is_absolute() else BASE_DIR / configured_sqlite_path
 
 db = Database(DATABASE_PATH, settings)
 db.initialize()
@@ -467,10 +468,14 @@ class PerfumeryApplication:
 
     def get_site_context(self, path: str) -> dict:
         metrics = db.get_metrics()
+        preview_label = os.getenv("PREVIEW_LABEL", "").strip()
+        if not preview_label and not settings.is_production:
+            preview_label = settings.app_env.upper()
         return {
             "site_name": settings.site_name,
             "site_logo": "/assets/perfume-logo.png",
             "current_path": path,
+            "preview_label": preview_label,
             "site_metrics": metrics,
             "payment": {
                 "razorpay_enabled": settings.razorpay_enabled,

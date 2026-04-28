@@ -95,6 +95,23 @@ main,
   z-index: 1;
 }
 
+.preview-badge {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 20;
+  padding: 0.55rem 0.78rem;
+  border: 1px solid rgba(215, 199, 183, 0.3);
+  border-radius: 999px;
+  background: rgba(18, 18, 18, 0.72);
+  color: var(--accent);
+  backdrop-filter: blur(18px);
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+}
+
 .announcement-bar,
 .nav-wrap,
 .hero__content,

@@ -42,6 +42,7 @@ class Settings:
     database_pool_max_size: int
     database_connect_timeout_seconds: int
     database_statement_timeout_ms: int
+    sqlite_database_path: str
     sqlite_busy_timeout_ms: int
     max_request_body_bytes: int
     static_cache_max_age_seconds: int
@@ -106,6 +107,7 @@ def load_settings() -> Settings:
         database_pool_max_size=int(os.getenv("DATABASE_POOL_MAX_SIZE", "12")),
         database_connect_timeout_seconds=int(os.getenv("DATABASE_CONNECT_TIMEOUT_SECONDS", "10")),
         database_statement_timeout_ms=int(os.getenv("DATABASE_STATEMENT_TIMEOUT_MS", "5000")),
+        sqlite_database_path=os.getenv("SQLITE_DATABASE_PATH", "data/perfumery.sqlite3").strip(),
         sqlite_busy_timeout_ms=int(os.getenv("SQLITE_BUSY_TIMEOUT_MS", "5000")),
         max_request_body_bytes=int(os.getenv("MAX_REQUEST_BODY_BYTES", "262144")),
         static_cache_max_age_seconds=int(os.getenv("STATIC_CACHE_MAX_AGE_SECONDS", "86400")),
