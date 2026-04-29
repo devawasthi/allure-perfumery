@@ -510,9 +510,17 @@ class Database:
             conn,
             "fragrances",
             {
+                "top_notes": "TEXT NOT NULL DEFAULT '[]'",
+                "heart_notes": "TEXT NOT NULL DEFAULT '[]'",
+                "base_notes": "TEXT NOT NULL DEFAULT '[]'",
+                "accent_from": "TEXT NOT NULL DEFAULT '#9b8067'",
+                "accent_to": "TEXT NOT NULL DEFAULT '#1f1b18'",
                 "image_url": "TEXT NOT NULL DEFAULT ''",
                 "photo_icon_url": "TEXT NOT NULL DEFAULT ''",
                 "artwork_kind": "TEXT NOT NULL DEFAULT 'generated'",
+                "bottle_size_ml": "INTEGER NOT NULL DEFAULT 100",
+                "featured": "INTEGER NOT NULL DEFAULT 0",
+                "rank": "INTEGER NOT NULL DEFAULT 999",
             },
         )
         self._ensure_columns(
@@ -2033,9 +2041,9 @@ class Database:
         return grouped
 
     def _serialize_fragrance(self, row: Any, variants: list[dict[str, Any]]) -> dict[str, Any]:
-        top_notes = json.loads(row["top_notes"])
-        heart_notes = json.loads(row["heart_notes"])
-        base_notes = json.loads(row["base_notes"])
+        top_notes = self._safe_note_list(row["top_notes"])
+        heart_notes = self._safe_note_list(row["heart_notes"])
+        base_notes = self._safe_note_list(row["base_notes"])
         available_variants = [variant for variant in variants if variant["stock_units"] > 0]
         starting_price = min((variant["price_inr"] for variant in available_variants), default=0)
         quick_add = next(
