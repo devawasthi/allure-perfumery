@@ -7,66 +7,79 @@
         <label>
           Search
           <input type="search" name="search" value="{{ active_filters.search }}" placeholder="Search by fragrance or house" />
+          {% if search_suggestion %}
+            <a class="filter-form__hint" href="{{ search_suggestion_href }}">Did you mean {{ search_suggestion }}?</a>
+          {% endif %}
         </label>
 
         <label>
           Collection
-          <select name="collection_type">
-            <option value="">All collections</option>
-            {% for option in filters.collections %}
-              <option value="{{ option }}" {% if active_filters.collection_type == option %}selected{% endif %}>
-                {{ option|title }}
-              </option>
-            {% endfor %}
-          </select>
+          <span class="select-shell">
+            <select name="collection_type" data-custom-select>
+              <option value="">All collections</option>
+              {% for option in filters.collections %}
+                <option value="{{ option }}" {% if active_filters.collection_type == option %}selected{% endif %}>
+                  {{ option|title }}
+                </option>
+              {% endfor %}
+            </select>
+          </span>
         </label>
 
         <label>
           Gender
-          <select name="gender">
-            <option value="">All wearers</option>
-            {% for option in filters.genders %}
-              <option value="{{ option }}" {% if active_filters.gender == option %}selected{% endif %}>
-                {{ option|titleize_enum }}
-              </option>
-            {% endfor %}
-          </select>
+          <span class="select-shell">
+            <select name="gender" data-custom-select>
+              <option value="">All wearers</option>
+              {% for option in filters.genders %}
+                <option value="{{ option }}" {% if active_filters.gender == option %}selected{% endif %}>
+                  {{ option|titleize_enum }}
+                </option>
+              {% endfor %}
+            </select>
+          </span>
         </label>
 
         <label>
           House
-          <select name="brand">
-            <option value="">All houses</option>
-            {% for option in filters.brands %}
-              <option value="{{ option }}" {% if active_filters.brand == option %}selected{% endif %}>
-                {{ option }}
-              </option>
-            {% endfor %}
-          </select>
+          <span class="select-shell">
+            <select name="brand" data-custom-select>
+              <option value="">All houses</option>
+              {% for option in filters.brands %}
+                <option value="{{ option }}" {% if active_filters.brand == option %}selected{% endif %}>
+                  {{ option }}
+                </option>
+              {% endfor %}
+            </select>
+          </span>
         </label>
 
         <label>
           Family
-          <select name="family">
-            <option value="">All families</option>
-            {% for option in filters.families %}
-              <option value="{{ option }}" {% if active_filters.family == option %}selected{% endif %}>
-                {{ option|title }}
-              </option>
-            {% endfor %}
-          </select>
+          <span class="select-shell">
+            <select name="family" data-custom-select>
+              <option value="">All families</option>
+              {% for option in filters.families %}
+                <option value="{{ option }}" {% if active_filters.family == option %}selected{% endif %}>
+                  {{ option|title }}
+                </option>
+              {% endfor %}
+            </select>
+          </span>
         </label>
 
         <label>
           Type
-          <select name="sale_type">
-            <option value="">All types</option>
-            {% for option in filters.sale_types %}
-              <option value="{{ option }}" {% if active_filters.sale_type == option %}selected{% endif %}>
-                {{ option|title }}
-              </option>
-            {% endfor %}
-          </select>
+          <span class="select-shell">
+            <select name="sale_type" data-custom-select>
+              <option value="">All types</option>
+              {% for option in filters.sale_types %}
+                <option value="{{ option }}" {% if active_filters.sale_type == option %}selected{% endif %}>
+                  {{ option|title }}
+                </option>
+              {% endfor %}
+            </select>
+          </span>
         </label>
 
         <div class="filter-form__actions">
@@ -78,8 +91,8 @@
 
     <div>
       <div class="catalog-status">
-        <span>{{ catalog_total }} fragrances</span>
-        <span>Page {{ pagination.page }} of {{ pagination.total_pages }}</span>
+        <span><strong>{{ catalog_total }}</strong> fragrances</span>
+        <span>Page <strong>{{ pagination.page }}</strong> of {{ pagination.total_pages }}</span>
       </div>
 
       {% if catalog_items %}

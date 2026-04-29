@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from difflib import SequenceMatcher
 import json
 import random
 import re
 import secrets
 import sqlite3
+import hashlib
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -196,6 +198,7 @@ class Database:
         self.db_path = Path(db_path)
         self.settings = settings
         self.backend = self._build_backend()
+        self._search_vocabulary: list[tuple[str, str, str]] | None = None
 
     def _build_backend(self):
         if self.settings.database_engine == "postgres":
@@ -284,8 +287,30 @@ class Database:
             )
             """,
             """
+            CREATE TABLE IF NOT EXISTS customers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                full_name TEXT NOT NULL,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_login_at TEXT NOT NULL DEFAULT ''
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS customer_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                customer_id INTEGER NOT NULL,
+                session_token_hash TEXT NOT NULL UNIQUE,
+                expires_at TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL,
+                FOREIGN KEY(customer_id) REFERENCES customers(id) ON DELETE CASCADE
+            )
+            """,
+            """
             CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                customer_id INTEGER DEFAULT NULL,
                 order_number TEXT NOT NULL UNIQUE,
                 public_token TEXT NOT NULL UNIQUE,
                 customer_name TEXT NOT NULL,
@@ -341,6 +366,10 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_fragrances_gender ON fragrances (gender)",
             "CREATE INDEX IF NOT EXISTS idx_variants_fragrance_id ON variants (fragrance_id)",
             "CREATE INDEX IF NOT EXISTS idx_variants_sale_type ON variants (sale_type)",
+            "CREATE INDEX IF NOT EXISTS idx_customers_email ON customers (email)",
+            "CREATE INDEX IF NOT EXISTS idx_customer_sessions_customer_id ON customer_sessions (customer_id)",
+            "CREATE INDEX IF NOT EXISTS idx_customer_sessions_expires_at ON customer_sessions (expires_at)",
+            "CREATE INDEX IF NOT EXISTS idx_orders_email ON orders (email)",
             "CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders (created_at)",
             "CREATE INDEX IF NOT EXISTS idx_orders_payment_status ON orders (payment_status)",
             "CREATE INDEX IF NOT EXISTS idx_orders_gateway_order_id ON orders (gateway_order_id)",
@@ -390,8 +419,29 @@ class Database:
             )
             """,
             """
+            CREATE TABLE IF NOT EXISTS customers (
+                id BIGSERIAL PRIMARY KEY,
+                full_name TEXT NOT NULL,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_login_at TEXT NOT NULL DEFAULT ''
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS customer_sessions (
+                id BIGSERIAL PRIMARY KEY,
+                customer_id BIGINT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+                session_token_hash TEXT NOT NULL UNIQUE,
+                expires_at TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL
+            )
+            """,
+            """
             CREATE TABLE IF NOT EXISTS orders (
                 id BIGSERIAL PRIMARY KEY,
+                customer_id BIGINT DEFAULT NULL REFERENCES customers(id) ON DELETE SET NULL,
                 order_number TEXT NOT NULL UNIQUE,
                 public_token TEXT NOT NULL UNIQUE,
                 customer_name TEXT NOT NULL,
@@ -445,6 +495,10 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_fragrances_gender ON fragrances (gender)",
             "CREATE INDEX IF NOT EXISTS idx_variants_fragrance_id ON variants (fragrance_id)",
             "CREATE INDEX IF NOT EXISTS idx_variants_sale_type ON variants (sale_type)",
+            "CREATE INDEX IF NOT EXISTS idx_customers_email ON customers (email)",
+            "CREATE INDEX IF NOT EXISTS idx_customer_sessions_customer_id ON customer_sessions (customer_id)",
+            "CREATE INDEX IF NOT EXISTS idx_customer_sessions_expires_at ON customer_sessions (expires_at)",
+            "CREATE INDEX IF NOT EXISTS idx_orders_email ON orders (email)",
             "CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders (created_at)",
             "CREATE INDEX IF NOT EXISTS idx_orders_payment_status ON orders (payment_status)",
             "CREATE INDEX IF NOT EXISTS idx_orders_gateway_order_id ON orders (gateway_order_id)",
@@ -465,6 +519,7 @@ class Database:
             conn,
             "orders",
             {
+                "customer_id": "INTEGER DEFAULT NULL",
                 "payment_gateway": "TEXT NOT NULL DEFAULT ''",
                 "payment_status": "TEXT NOT NULL DEFAULT ''",
                 "public_token": "TEXT NOT NULL DEFAULT ''",
@@ -482,6 +537,8 @@ class Database:
         )
         self._backfill_order_tokens(conn)
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_public_token ON orders (public_token)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_customer_id ON orders (customer_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_email ON orders (email)")
 
     def _backfill_order_tokens(self, conn: DatabaseConnection) -> None:
         rows = conn.execute(
@@ -627,6 +684,212 @@ class Database:
             f"{item['signature']}"
         )
 
+    def create_customer(self, full_name: str, email: str, password: str) -> dict[str, Any]:
+        full_name = re.sub(r"\s+", " ", str(full_name or "")).strip()
+        email = str(email or "").strip().lower()
+        password = str(password or "")
+
+        if len(full_name) < 2:
+            raise ValidationError("Full name is required.")
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+            raise ValidationError("Please enter a valid email address.")
+        if len(password) < 8:
+            raise ValidationError("Password must be at least 8 characters.")
+
+        now = self._now()
+        with self.connect() as conn:
+            try:
+                conn.begin_write()
+                existing = conn.execute(
+                    "SELECT 1 FROM customers WHERE email = ? LIMIT 1",
+                    (email,),
+                ).fetchone()
+                if existing:
+                    raise ValidationError("An account already exists for this email.")
+                conn.execute(
+                    """
+                    INSERT INTO customers (full_name, email, password_hash, created_at, last_login_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (full_name, email, self._hash_password(password), now, now),
+                )
+                customer_row = conn.execute(
+                    "SELECT id, full_name, email, created_at, last_login_at FROM customers WHERE email = ?",
+                    (email,),
+                ).fetchone()
+                if customer_row is None:
+                    raise ValidationError("Account could not be loaded after sign up.")
+                self._claim_customer_orders(conn, int(customer_row["id"]), email)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+        customer = self.get_customer_by_email(email)
+        if customer is None:
+            raise ValidationError("Account could not be loaded after sign up.")
+        return customer
+
+    def authenticate_customer(self, email: str, password: str) -> dict[str, Any] | None:
+        email = str(email or "").strip().lower()
+        password = str(password or "")
+        if not email or not password:
+            return None
+
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM customers WHERE email = ?", (email,)).fetchone()
+            if row is None or not self._verify_password(password, row["password_hash"]):
+                return None
+            now = self._now()
+            conn.execute(
+                "UPDATE customers SET last_login_at = ? WHERE id = ?",
+                (now, row["id"]),
+            )
+            self._claim_customer_orders(conn, int(row["id"]), email)
+            conn.commit()
+
+        return self.get_customer_by_email(email)
+
+    def get_customer_by_email(self, email: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT id, full_name, email, created_at, last_login_at FROM customers WHERE email = ?",
+                (str(email or "").strip().lower(),),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def create_customer_session(self, customer_id: int, days: int = 30) -> str:
+        token = secrets.token_urlsafe(32)
+        now = self._now()
+        expires = (datetime.utcnow() + timedelta(days=days)).replace(microsecond=0).isoformat() + "Z"
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO customer_sessions (customer_id, session_token_hash, expires_at, created_at, last_seen_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (customer_id, self._hash_token(token), expires, now, now),
+            )
+            conn.commit()
+        return token
+
+    def get_customer_by_session_token(self, token: str) -> dict[str, Any] | None:
+        token = str(token or "").strip()
+        if not token:
+            return None
+        token_hash = self._hash_token(token)
+        now = self._now()
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT c.id, c.full_name, c.email, c.created_at, c.last_login_at,
+                       s.expires_at, s.last_seen_at
+                FROM customer_sessions s
+                JOIN customers c ON c.id = s.customer_id
+                WHERE s.session_token_hash = ? AND s.expires_at > ?
+                """,
+                (token_hash, now),
+            ).fetchone()
+            if row is None:
+                conn.execute(
+                    "DELETE FROM customer_sessions WHERE session_token_hash = ? OR expires_at <= ?",
+                    (token_hash, now),
+                )
+                conn.commit()
+                return None
+            conn.execute(
+                "UPDATE customer_sessions SET last_seen_at = ? WHERE session_token_hash = ?",
+                (now, token_hash),
+            )
+            conn.commit()
+        customer = dict(row)
+        return customer
+
+    def delete_customer_session(self, token: str) -> None:
+        token = str(token or "").strip()
+        if not token:
+            return
+        with self.connect() as conn:
+            conn.execute(
+                "DELETE FROM customer_sessions WHERE session_token_hash = ?",
+                (self._hash_token(token),),
+            )
+            conn.commit()
+
+    def list_customer_orders(self, customer_id: int, email: str, limit: int = 50) -> list[dict[str, Any]]:
+        self.expire_stale_reservations()
+        email = str(email or "").strip().lower()
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT order_number, public_token, customer_name, email, total_inr, item_count,
+                       status, payment_method, payment_status, created_at
+                FROM orders
+                WHERE customer_id = ? OR LOWER(email) = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (customer_id, email, limit),
+            ).fetchall()
+        orders = [dict(row) for row in rows]
+        for order in orders:
+            order["public_path"] = f"/account/orders/{order['order_number']}"
+        return orders
+
+    def get_customer_order(self, customer_id: int, email: str, order_number: str) -> dict[str, Any] | None:
+        email = str(email or "").strip().lower()
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT order_number
+                FROM orders
+                WHERE order_number = ? AND (customer_id = ? OR LOWER(email) = ?)
+                """,
+                (order_number, customer_id, email),
+            ).fetchone()
+        if row is None:
+            return None
+        return self.get_order(order_number)
+
+    def _claim_customer_orders(self, conn: DatabaseConnection, customer_id: int, email: str) -> None:
+        conn.execute(
+            """
+            UPDATE orders
+            SET customer_id = ?
+            WHERE (customer_id IS NULL OR customer_id = 0) AND LOWER(email) = ?
+            """,
+            (customer_id, email),
+        )
+
+    def _hash_password(self, password: str) -> str:
+        iterations = 260_000
+        salt = secrets.token_hex(16)
+        digest = hashlib.pbkdf2_hmac(
+            "sha256",
+            password.encode("utf-8"),
+            bytes.fromhex(salt),
+            iterations,
+        ).hex()
+        return f"pbkdf2_sha256${iterations}${salt}${digest}"
+
+    def _verify_password(self, password: str, password_hash: str) -> bool:
+        try:
+            algorithm, iterations, salt, expected = password_hash.split("$", 3)
+            if algorithm != "pbkdf2_sha256":
+                return False
+            digest = hashlib.pbkdf2_hmac(
+                "sha256",
+                password.encode("utf-8"),
+                bytes.fromhex(salt),
+                int(iterations),
+            ).hex()
+        except Exception:
+            return False
+        return secrets.compare_digest(digest, expected)
+
+    def _hash_token(self, token: str) -> str:
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
     def list_filters(self) -> dict[str, list[str]]:
         with self.connect() as conn:
             brands = [row["brand"] for row in conn.execute("SELECT DISTINCT brand FROM fragrances ORDER BY brand")]
@@ -700,9 +963,12 @@ class Database:
 
         search = filters.get("search")
         if search:
-            like = f"%{search.lower()}%"
-            clauses.append("(LOWER(name) LIKE ? OR LOWER(brand) LIKE ? OR LOWER(description) LIKE ?)")
-            params.extend([like, like, like])
+            search_clauses = []
+            for term in self._catalog_search_terms(search):
+                like = f"%{term.lower()}%"
+                search_clauses.append("(LOWER(name) LIKE ? OR LOWER(brand) LIKE ? OR LOWER(description) LIKE ?)")
+                params.extend([like, like, like])
+            clauses.append("(" + " OR ".join(search_clauses) + ")")
 
         if filters.get("gender"):
             clauses.append("gender = ?")
@@ -727,6 +993,169 @@ class Database:
             params.append(filters["sale_type"])
 
         return clauses, params
+
+    def _catalog_search_terms(self, search: str) -> list[str]:
+        clean_search = " ".join(str(search or "").strip().split())
+        terms = [clean_search] if clean_search else []
+        normalized_search = self._normalize_search_term(clean_search)
+        if not normalized_search:
+            return terms
+
+        search_tokens = [token for token in normalized_search.split() if len(token) >= 3]
+        brand_matches: list[tuple[float, str, str, str]] = []
+        name_matches: list[tuple[float, str, str, str]] = []
+        token_matches: list[tuple[float, str, str, str]] = []
+
+        for display_term, normalized_term, term_type in self._catalog_search_vocabulary():
+            score = self._catalog_search_score(
+                normalized_search,
+                search_tokens,
+                normalized_term,
+                term_type,
+            )
+            if not score:
+                continue
+            match = (score, display_term, normalized_term, term_type)
+            if term_type.startswith("brand"):
+                brand_matches.append(match)
+            elif term_type == "name":
+                name_matches.append(match)
+            else:
+                token_matches.append(match)
+
+        full_brand_matches = [match for match in brand_matches if match[3] == "brand"]
+        exact_brand_token_matches = [
+            match for match in brand_matches
+            if match[3] == "brand_token" and match[2] in search_tokens
+        ]
+        matches = full_brand_matches or exact_brand_token_matches or brand_matches or name_matches or token_matches
+        matches.sort(key=lambda item: item[0], reverse=True)
+        if matches:
+            best_score = matches[0][0]
+            matches = [
+                item for item in matches
+                if item[0] >= max(0.78, best_score - 0.03)
+            ]
+        terms.extend(display_term for _, display_term, _, _ in matches[:5])
+
+        unique_terms = []
+        seen = set()
+        for term in terms:
+            key = self._normalize_search_term(term)
+            if key and key not in seen:
+                unique_terms.append(term)
+                seen.add(key)
+        return unique_terms[:10]
+
+    def suggest_search_term(self, search: str) -> str:
+        normalized_search = self._normalize_search_term(search)
+        if len(normalized_search) < 3:
+            return ""
+        for term in self._catalog_search_terms(search):
+            if self._normalize_search_term(term) != normalized_search:
+                return term
+        return ""
+
+    def _catalog_search_vocabulary(self) -> list[tuple[str, str, str]]:
+        if self._search_vocabulary is not None:
+            return self._search_vocabulary
+
+        vocabulary: list[tuple[str, str, str]] = []
+        seen = set()
+
+        def add_term(term: str, term_type: str, *, minimum_length: int = 3) -> None:
+            display_term = " ".join(str(term or "").strip().split())
+            normalized = self._normalize_search_term(display_term)
+            key = f"{term_type}:{normalized}"
+            if len(normalized) < minimum_length or key in seen:
+                return
+            vocabulary.append((display_term, normalized, term_type))
+            seen.add(key)
+
+        with self.connect() as conn:
+            rows = conn.execute("SELECT DISTINCT brand, name FROM fragrances").fetchall()
+
+        name_token_counts: dict[str, int] = {}
+        for row in rows:
+            for token in set(self._normalize_search_term(row["name"]).split()):
+                if len(token) >= 5:
+                    name_token_counts[token] = name_token_counts.get(token, 0) + 1
+        max_name_token_frequency = max(8, len(rows) // 60)
+
+        for row in rows:
+            brand = row["brand"]
+            name = row["name"]
+            add_term(brand, "brand")
+            for token in self._normalize_search_term(brand).split():
+                add_term(token, "brand_token", minimum_length=4)
+            add_term(name, "name")
+            for token in self._normalize_search_term(name).split():
+                if name_token_counts.get(token, 0) > max_name_token_frequency:
+                    continue
+                add_term(token, "name_token", minimum_length=5)
+
+        self._search_vocabulary = vocabulary
+        return vocabulary
+
+    def _normalize_search_term(self, value: str) -> str:
+        value = str(value or "").lower().replace("&", " and ")
+        return re.sub(r"[^a-z0-9]+", " ", value).strip()
+
+    def _catalog_search_score(
+        self,
+        query: str,
+        query_tokens: list[str],
+        candidate: str,
+        term_type: str,
+    ) -> float:
+        if term_type.endswith("_token") and " " in query:
+            full_score = 0.0
+        else:
+            full_score = self._search_match_score(query, candidate)
+        token_scores = []
+        for index, token in enumerate(query_tokens):
+            if token == candidate:
+                score = self._exact_token_score(token, candidate, term_type)
+            else:
+                score = self._search_match_score(token, candidate)
+            if score and term_type.endswith("_token"):
+                score = max(0.0, score - (index * 0.18))
+            token_scores.append(score)
+        token_score = max(token_scores, default=0.0)
+
+        score = max(full_score, token_score)
+        if not score:
+            return 0.0
+
+        if term_type.startswith("brand"):
+            score += 0.06
+        elif term_type == "name":
+            score += 0.03
+        return min(score, 1.0)
+
+    def _exact_token_score(self, token: str, candidate: str, term_type: str) -> float:
+        if token != candidate:
+            return 0.0
+        if term_type == "brand_token":
+            return 0.88 if len(token) >= 5 else 0.76
+        return 0.0
+
+    def _search_match_score(self, query: str, candidate: str) -> float:
+        if not query or not candidate or query == candidate:
+            return 1.0 if query and query == candidate else 0.0
+        if " " in candidate and candidate in query:
+            return 0.94
+        if len(candidate) >= 4 and (query in candidate or candidate in query):
+            length_ratio = min(len(query), len(candidate)) / max(len(query), len(candidate))
+            if length_ratio >= 0.55:
+                return 0.98
+
+        shorter = min(len(query), len(candidate))
+        if shorter < 3:
+            return 0.0
+        threshold = 0.75 if shorter <= 4 else 0.76
+        score = SequenceMatcher(None, query, candidate).ratio()
+        return score if score >= threshold else 0.0
 
     def get_featured(self, limit: int = 8) -> list[dict[str, Any]]:
         return self.list_fragrances(limit=limit, featured_only=True)
@@ -789,6 +1218,126 @@ class Database:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def get_concierge_candidates(self, terms: list[str] | None = None, limit: int = 120) -> list[dict[str, Any]]:
+        clean_terms = []
+        for term in terms or []:
+            normalized = re.sub(r"[^a-z0-9 ]+", " ", term.lower()).strip()
+            if len(normalized) >= 3 and normalized not in clean_terms:
+                clean_terms.append(normalized)
+
+        def fetch_rows(search_terms: list[str], row_limit: int) -> list[Any]:
+            clauses = ["v.stock_units > 0"]
+            params: list[Any] = []
+            if search_terms:
+                searchable_columns = [
+                    "f.name",
+                    "f.brand",
+                    "f.collection_type",
+                    "f.gender",
+                    "f.family",
+                    "f.concentration",
+                    "f.description",
+                    "f.signature",
+                    "f.top_notes",
+                    "f.heart_notes",
+                    "f.base_notes",
+                ]
+                term_clauses = []
+                for term in search_terms[:12]:
+                    like = f"%{term}%"
+                    term_clauses.append(
+                        "("
+                        + " OR ".join(f"LOWER({column}) LIKE ?" for column in searchable_columns)
+                        + ")"
+                    )
+                    params.extend([like] * len(searchable_columns))
+                clauses.append("(" + " OR ".join(term_clauses) + ")")
+
+            params.append(row_limit)
+            with self.connect() as conn:
+                return conn.execute(
+                    f"""
+                    SELECT
+                        f.*,
+                        v.id AS variant_id,
+                        v.sale_type AS variant_sale_type,
+                        v.size_label AS variant_size_label,
+                        v.size_ml AS variant_size_ml,
+                        v.price_inr AS variant_price_inr,
+                        v.stock_units AS variant_stock_units,
+                        v.badge AS variant_badge
+                    FROM fragrances f
+                    JOIN variants v ON v.fragrance_id = f.id
+                    WHERE {' AND '.join(clauses)}
+                    ORDER BY f.featured DESC, f.rank ASC, f.brand ASC, f.name ASC, v.price_inr ASC
+                    LIMIT ?
+                    """,
+                    params,
+                ).fetchall()
+
+        rows = fetch_rows(clean_terms, max(limit * 5, 180))
+        if len({row["slug"] for row in rows}) < 8 and clean_terms:
+            rows = fetch_rows([], max(limit * 5, 180))
+
+        grouped: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            slug = row["slug"]
+            candidate = grouped.get(slug)
+            if candidate is None:
+                top_notes = self._safe_note_list(row["top_notes"])
+                heart_notes = self._safe_note_list(row["heart_notes"])
+                base_notes = self._safe_note_list(row["base_notes"])
+                candidate = {
+                    "id": row["id"],
+                    "slug": slug,
+                    "brand": row["brand"],
+                    "name": row["name"],
+                    "collection_type": row["collection_type"],
+                    "gender": row["gender"],
+                    "family": row["family"],
+                    "concentration": row["concentration"],
+                    "origin": row["origin"],
+                    "description": row["description"],
+                    "signature": row["signature"],
+                    "top_notes": top_notes,
+                    "heart_notes": heart_notes,
+                    "base_notes": base_notes,
+                    "notes": [*top_notes, *heart_notes, *base_notes],
+                    "image_url": row["image_url"],
+                    "photo_icon_url": row["photo_icon_url"],
+                    "featured": bool(row["featured"]),
+                    "variants": [],
+                    "starting_price": 0,
+                    "product_path": f"/fragrances/{slug}",
+                }
+                grouped[slug] = candidate
+
+            if len(candidate["variants"]) < 8:
+                candidate["variants"].append(
+                    {
+                        "id": row["variant_id"],
+                        "sale_type": row["variant_sale_type"],
+                        "size_label": row["variant_size_label"],
+                        "size_ml": row["variant_size_ml"],
+                        "price_inr": row["variant_price_inr"],
+                        "stock_units": row["variant_stock_units"],
+                        "badge": row["variant_badge"],
+                    }
+                )
+
+        candidates = list(grouped.values())[:limit]
+        for candidate in candidates:
+            prices = [variant["price_inr"] for variant in candidate["variants"]]
+            candidate["starting_price"] = min(prices) if prices else 0
+        return candidates
+
+    def _safe_note_list(self, value: str) -> list[str]:
+        try:
+            parsed = json.loads(value or "[]")
+        except json.JSONDecodeError:
+            return []
+        return [str(item) for item in parsed if str(item).strip()]
+
     def get_cart_items(self, variant_ids: list[int]) -> list[dict[str, Any]]:
         if not variant_ids:
             return []
@@ -828,7 +1377,7 @@ class Database:
     def preview_order(self, items: list[dict[str, Any]]) -> dict[str, Any]:
         return self._build_checkout_snapshot(items)
 
-    def create_order(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def create_order(self, payload: dict[str, Any], customer_id: int | None = None) -> dict[str, Any]:
         customer = payload.get("customer") or {}
         items = payload.get("items") or []
         self._validate_customer(customer)
@@ -847,6 +1396,7 @@ class Database:
                 self._deduct_stock(conn, snapshot["items"])
                 order_number = self._insert_order(
                     conn,
+                    customer_id=customer_id,
                     customer=customer,
                     snapshot=snapshot,
                     payment_method=payment_method,
@@ -880,6 +1430,7 @@ class Database:
         customer: dict[str, Any],
         items: list[dict[str, Any]],
         gateway_order_id: str,
+        customer_id: int | None = None,
     ) -> dict[str, Any]:
         self._validate_customer(customer)
         snapshot = self._build_checkout_snapshot(items)
@@ -891,6 +1442,7 @@ class Database:
                 self._deduct_stock(conn, snapshot["items"])
                 cursor_order_number = self._insert_order(
                     conn,
+                    customer_id=customer_id,
                     customer=customer,
                     snapshot=snapshot,
                     payment_method=customer["payment_method"],
@@ -1305,6 +1857,7 @@ class Database:
         self,
         conn: DatabaseConnection,
         *,
+        customer_id: int | None,
         customer: dict[str, Any],
         snapshot: dict[str, Any],
         payment_method: str,
@@ -1327,15 +1880,16 @@ class Database:
         conn.execute(
             """
             INSERT INTO orders (
-                order_number, public_token, customer_name, email, phone, shipping_line1, shipping_line2,
+                customer_id, order_number, public_token, customer_name, email, phone, shipping_line1, shipping_line2,
                 city, state, postal_code, country, payment_method, payment_gateway, payment_status,
                 gateway_order_id, gateway_payment_id, gateway_signature, payment_amount_inr,
                 delivery_notes, subtotal_inr, shipping_inr, total_inr, item_count, status,
                 stock_reserved, reservation_expires_at, initiated_at, paid_at, notification_sent_at,
                 last_error, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                customer_id,
                 order_number,
                 public_token,
                 customer["customer_name"],

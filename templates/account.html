@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="utility-hero">
+    <p class="section-kicker">My Account</p>
+    <h1>{{ current_customer.full_name }}</h1>
+    <p>{{ current_customer.email }}</p>
+  </section>
+
+  <section class="account-toolbar">
+    <form action="/account/sign-out" method="post">
+      <button class="button button--ghost" type="submit">Sign out</button>
+    </form>
+  </section>
+
+  <section class="order-card order-card--full">
+    <div class="section-heading">
+      <div>
+        <p class="section-kicker">Order History</p>
+        <h2>Your orders</h2>
+      </div>
+      <a class="button button--ghost" href="/catalog">Continue shopping</a>
+    </div>
+
+    <div class="account-order-list">
+      {% for order in orders %}
+        <a class="account-order-row" href="{{ order.public_path }}">
+          <div>
+            <strong>{{ order.order_number }}</strong>
+            <span>{{ order.created_at|replace("T", " ")|replace("Z", "") }}</span>
+          </div>
+          <div>
+            <strong>{{ order.total_inr|money }}</strong>
+            <span>{{ order.item_count }} item(s)</span>
+          </div>
+          <div>
+            <strong>{{ order.status }}</strong>
+            <span>{{ order.payment_method }} &middot; {{ order.payment_status|titleize_enum }}</span>
+          </div>
+        </a>
+      {% else %}
+        <div class="empty-state empty-state--wide">
+          <h2>No orders yet.</h2>
+          <p>Your future orders will appear here after checkout.</p>
+          <a class="button" href="/catalog">Explore catalog</a>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

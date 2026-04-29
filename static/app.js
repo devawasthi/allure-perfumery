@@ -123,6 +123,15 @@ async function fetchJson(url, options = {}) {
   return payload;
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 async function fetchCartItems(cart) {
   if (!cart.length) return [];
   const ids = cart.map((item) => item.variant_id).join(",");
@@ -152,6 +161,113 @@ function renderCartSummary(items, subtotalNode, shippingNode, totalNode) {
 function imageMarkup(item, className = "fragrance-thumb") {
   const imageUrl = item.photo_icon_url || item.image_url;
   return `<img class="${className}" src="${imageUrl}" alt="${item.brand} ${item.name}" loading="lazy" />`;
+}
+
+function mountConcierge() {
+  const root = document.querySelector("[data-concierge-root]");
+  if (!root) return;
+
+  const form = root.querySelector("[data-concierge-form]");
+  const input = root.querySelector("[data-concierge-input]");
+  const status = root.querySelector("[data-concierge-status]");
+  const results = root.querySelector("[data-concierge-results]");
+  const submitButton = form?.querySelector("button[type='submit']");
+
+  function setConciergeStatus(message, isError = false) {
+    if (!status) return;
+    status.textContent = message;
+    status.classList.toggle("is-error", Boolean(isError));
+  }
+
+  function renderConciergeResults(payload) {
+    if (!results) return;
+    const recommendations = payload.recommendations || [];
+    if (!recommendations.length) {
+      results.innerHTML = `
+        <div class="empty-state empty-state--wide">
+          <h2>No matching edit yet.</h2>
+          <p>Try a broader budget, occasion, or note family.</p>
+        </div>
+      `;
+      return;
+    }
+
+    results.innerHTML = `
+      <div class="concierge-results__intro">
+        <p class="section-kicker">${payload.mode === "ai" ? "AI Edit" : "Live Catalog Edit"}</p>
+        <h3>${escapeHtml(payload.reply || "Here is the edit I would start with.")}</h3>
+      </div>
+      <div class="concierge-grid">
+        ${recommendations
+          .map(
+            (item) => `
+              <article class="concierge-card">
+                <a class="concierge-card__image" href="${escapeHtml(item.product_path)}">
+                  <img src="${escapeHtml(item.image_url)}" alt="${escapeHtml(`${item.brand} ${item.name}`)}" loading="lazy" />
+                </a>
+                <div class="concierge-card__body">
+                  <p class="section-kicker">${escapeHtml(item.brand)}</p>
+                  <h4><a href="${escapeHtml(item.product_path)}">${escapeHtml(item.name)}</a></h4>
+                  <p>${escapeHtml(item.reason)}</p>
+                  <div class="concierge-card__meta">
+                    <span>${escapeHtml(item.variant_label)}</span>
+                    <strong>${money(item.price_inr)}</strong>
+                  </div>
+                  <div class="concierge-card__actions">
+                    <button
+                      type="button"
+                      class="button button--ghost"
+                      data-add-to-cart
+                      data-variant-id="${Number(item.variant_id)}"
+                      data-item-label="${escapeHtml(`${item.brand} ${item.name} ${item.variant_label}`)}"
+                    >
+                      Add to cart
+                    </button>
+                    <a class="button" href="${escapeHtml(item.product_path)}">View</a>
+                  </div>
+                </div>
+              </article>
+            `
+          )
+          .join("")}
+      </div>
+    `;
+  }
+
+  root.querySelectorAll("[data-concierge-prompt]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!input) return;
+      input.value = button.dataset.conciergePrompt || "";
+      input.focus();
+    });
+  });
+
+  form?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const message = input?.value.trim() || "";
+    if (message.length < 3) {
+      setConciergeStatus("Tell us a little more.", true);
+      return;
+    }
+
+    if (submitButton) submitButton.disabled = true;
+    setConciergeStatus("Selecting from the live catalog...");
+    try {
+      const payload = await fetchJson("/api/concierge", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message }),
+      });
+      renderConciergeResults(payload);
+      setConciergeStatus("");
+    } catch (error) {
+      setConciergeStatus(error.message, true);
+    } finally {
+      if (submitButton) submitButton.disabled = false;
+    }
+  });
 }
 
 async function mountCartPage() {
@@ -532,6 +648,104 @@ function mountGatewayTilt() {
   });
 }
 
+function mountCustomSelects() {
+  document.querySelectorAll("select[data-custom-select]").forEach((select, index) => {
+    if (select.dataset.customSelectMounted === "true") return;
+    const shell = select.closest(".select-shell");
+    if (!shell) return;
+
+    select.dataset.customSelectMounted = "true";
+    shell.classList.add("is-enhanced");
+
+    const custom = document.createElement("div");
+    const button = document.createElement("button");
+    const list = document.createElement("div");
+    const value = document.createElement("span");
+    const listId = `custom-select-list-${index}-${select.name || "filter"}`;
+
+    custom.className = "custom-select";
+    button.type = "button";
+    button.className = "custom-select__button";
+    button.setAttribute("aria-haspopup", "listbox");
+    button.setAttribute("aria-expanded", "false");
+    button.setAttribute("aria-controls", listId);
+    list.id = listId;
+    list.className = "custom-select__list";
+    list.setAttribute("role", "listbox");
+
+    button.appendChild(value);
+    custom.append(button, list);
+    shell.appendChild(custom);
+
+    function selectedOption() {
+      return select.options[select.selectedIndex] || select.options[0];
+    }
+
+    function close() {
+      custom.classList.remove("is-open");
+      button.setAttribute("aria-expanded", "false");
+    }
+
+    function syncLabel() {
+      const option = selectedOption();
+      value.textContent = option ? option.textContent.trim() : "";
+      list.querySelectorAll(".custom-select__option").forEach((optionButton) => {
+        const isSelected = optionButton.dataset.value === select.value;
+        optionButton.classList.toggle("is-selected", isSelected);
+        optionButton.setAttribute("aria-selected", isSelected ? "true" : "false");
+      });
+    }
+
+    Array.from(select.options).forEach((option) => {
+      const optionButton = document.createElement("button");
+      optionButton.type = "button";
+      optionButton.className = "custom-select__option";
+      optionButton.dataset.value = option.value;
+      optionButton.textContent = option.textContent.trim();
+      optionButton.setAttribute("role", "option");
+      optionButton.addEventListener("click", () => {
+        select.value = option.value;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        syncLabel();
+        close();
+        button.focus();
+      });
+      list.appendChild(optionButton);
+    });
+
+    button.addEventListener("click", () => {
+      const shouldOpen = !custom.classList.contains("is-open");
+      document.querySelectorAll(".custom-select.is-open").forEach((node) => {
+        if (node !== custom) {
+          node.classList.remove("is-open");
+          node.querySelector(".custom-select__button")?.setAttribute("aria-expanded", "false");
+        }
+      });
+      custom.classList.toggle("is-open", shouldOpen);
+      button.setAttribute("aria-expanded", shouldOpen ? "true" : "false");
+    });
+
+    button.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        close();
+      }
+    });
+
+    select.addEventListener("change", syncLabel);
+    syncLabel();
+  });
+
+  if (window.customSelectDismissMounted) return;
+  window.customSelectDismissMounted = true;
+  document.addEventListener("click", (event) => {
+    if (event.target.closest(".custom-select")) return;
+    document.querySelectorAll(".custom-select.is-open").forEach((node) => {
+      node.classList.remove("is-open");
+      node.querySelector(".custom-select__button")?.setAttribute("aria-expanded", "false");
+    });
+  });
+}
+
 document.addEventListener("click", (event) => {
   const addButton = event.target.closest("[data-add-to-cart]");
   if (addButton) {
@@ -557,5 +771,7 @@ updateCartCount();
 mountThemeToggle();
 mountReveals();
 mountGatewayTilt();
+mountConcierge();
 mountCartPage();
 mountCheckoutPage();
+mountCustomSelects();

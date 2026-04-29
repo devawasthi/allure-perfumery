@@ -21,6 +21,7 @@ except ImportError:  # pragma: no cover - optional local helper
 
 from perfumery_app.config import load_settings
 from perfumery_app.database import Database
+from perfumery_app.note_extraction import extract_note_pyramid
 
 
 DESIGNER_BRANDS = {
@@ -128,8 +129,10 @@ def size_ml(value: str) -> int:
     return max(1, int(round(float(match.group(1)))))
 
 
-def sale_type(value: str) -> str:
-    label = value.lower()
+def sale_type(value: str, product_name: str = "") -> str:
+    label = f"{product_name} {value}".lower()
+    if "partial" in label:
+        return "partial"
     if "sample" in label:
         return "sample"
     if "miniature" in label:
@@ -138,8 +141,6 @@ def sale_type(value: str) -> str:
         return "decant"
     if "tester" in label:
         return "tester"
-    if "partial" in label:
-        return "partial"
     if "retail" in label:
         return "retail"
     return "retail"
@@ -208,6 +209,7 @@ def upsert_products(
                 accent_from, accent_to = colors_for(brand, name)
                 collection_type = "designer" if brand in DESIGNER_BRANDS else "niche"
                 concentration = title_concentration(row.get("concentration", ""), name)
+                notes = extract_note_pyramid(row)
                 bottle_size = max((size_ml(variant["size_or_format"]) for variant in product_variants), default=0)
                 if bottle_size <= 0:
                     bottle_size = 100
@@ -251,9 +253,9 @@ def upsert_products(
                         "Imported",
                         row.get("description", "").strip() or f"{brand} {name}.",
                         family.title(),
-                        json.dumps([]),
-                        json.dumps([]),
-                        json.dumps([]),
+                        json.dumps(notes["top_notes"]),
+                        json.dumps(notes["heart_notes"]),
+                        json.dumps(notes["base_notes"]),
                         accent_from,
                         accent_to,
                         row.get("image_url", "").strip() or f"/artwork/{slug}.svg",
@@ -297,7 +299,7 @@ def upsert_products(
                         (
                             fragrance_id,
                             sku,
-                            sale_type(variant_title),
+                            sale_type(variant_title, name),
                             variant_title,
                             size_ml(variant_title),
                             price,

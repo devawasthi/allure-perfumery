@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="utility-hero">
+    <p class="section-kicker">Account</p>
+    <h1>Create account</h1>
+    <p>Save your order history under one private customer account.</p>
+  </section>
+
+  <section class="auth-shell">
+    <article class="order-card auth-card">
+      <form class="checkout-form" action="/account/sign-up" method="post">
+        <label>
+          Full name
+          <input
+            type="text"
+            name="full_name"
+            value="{{ form.full_name or '' }}"
+            autocomplete="name"
+            minlength="2"
+            required
+          />
+        </label>
+        <label>
+          Email
+          <input
+            type="email"
+            name="email"
+            value="{{ form.email or '' }}"
+            autocomplete="email"
+            inputmode="email"
+            required
+          />
+        </label>
+        <label>
+          Password
+          <input type="password" name="password" autocomplete="new-password" minlength="8" required />
+        </label>
+        <label>
+          Confirm password
+          <input type="password" name="confirm_password" autocomplete="new-password" minlength="8" required />
+        </label>
+        {% if error %}
+          <p class="checkout-form__status is-error">{{ error }}</p>
+        {% endif %}
+        <button class="button button--full" type="submit">Create account</button>
+      </form>
+      <p class="auth-card__switch">
+        Already have an account?
+        <a href="/account/sign-in">Sign in</a>
+      </p>
+    </article>
+  </section>
+{% endblock %}

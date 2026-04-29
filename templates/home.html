@@ -40,6 +40,50 @@
     <a class="hero__scroll" href="#shop-by-wearer" aria-label="Scroll to shop by wearer"></a>
   </section>
 
+  {% if concierge.enabled %}
+    <section class="concierge-section" id="scent-concierge" data-concierge-root>
+      <div class="concierge-shell">
+        <div class="concierge-copy">
+          <p class="section-kicker">Scent Concierge</p>
+          <h2>Tell us what you want to smell like.</h2>
+          <p>
+            Share a mood, budget, notes, occasion, or house you already like.
+          </p>
+          <div class="concierge-prompts" aria-label="Sample scent briefs">
+            <button type="button" data-concierge-prompt="Masculine evening fragrance under INR 4,000 with strong projection">
+              Evening
+            </button>
+            <button type="button" data-concierge-prompt="Clean office scent for daily wear, fresh and elegant">
+              Office
+            </button>
+            <button type="button" data-concierge-prompt="Unisex niche decants with amber, vanilla, or tobacco notes">
+              Discovery
+            </button>
+          </div>
+        </div>
+
+        <form class="concierge-form" data-concierge-form>
+          <label>
+            <span>Your brief</span>
+            <textarea
+              name="message"
+              rows="5"
+              maxlength="600"
+              data-concierge-input
+              placeholder="Example: I want a refined designer fragrance for office and evening, fresh but long lasting, under INR 5,000."
+              required
+            ></textarea>
+          </label>
+          <div class="concierge-form__actions">
+            <button type="submit" class="button">Find my edit</button>
+            <p data-concierge-status></p>
+          </div>
+        </form>
+      </div>
+      <div class="concierge-results" data-concierge-results aria-live="polite"></div>
+    </section>
+  {% endif %}
+
   <section class="gender-gateway" id="shop-by-wearer">
     <div class="section-heading section-heading--center">
       <p class="section-kicker">Shop By Wearer</p>
@@ -102,12 +146,28 @@
   </section>
 
   <section class="brand-ribbon">
-    <div class="brand-ribbon__track">
+    <div class="brand-ribbon__track" aria-label="Featured fragrance houses">
       {% for brand in brands %}
-        <span>{{ brand.brand }} &middot; {{ brand.collection_type|title }}</span>
+        <a
+          class="brand-ribbon__logo brand-ribbon__logo--{{ brand.logo_key }}"
+          href="{{ brand.catalog_href }}"
+          aria-label="Shop {{ brand.brand }}"
+        >
+          {% for line in brand.logo_lines %}
+            <span>{{ line }}</span>
+          {% endfor %}
+        </a>
       {% endfor %}
       {% for brand in brands %}
-        <span>{{ brand.brand }} &middot; {{ brand.collection_type|title }}</span>
+        <a
+          class="brand-ribbon__logo brand-ribbon__logo--{{ brand.logo_key }}"
+          href="{{ brand.catalog_href }}"
+          aria-label="Shop {{ brand.brand }}"
+        >
+          {% for line in brand.logo_lines %}
+            <span>{{ line }}</span>
+          {% endfor %}
+        </a>
       {% endfor %}
     </div>
   </section>

@@ -18,6 +18,7 @@ from wsgiref.simple_server import WSGIRequestHandler, WSGIServer, make_server
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from perfumery_app.artwork import build_fragrance_artwork
+from perfumery_app.concierge import ScentConcierge
 from perfumery_app.config import load_settings
 from perfumery_app.database import Database, ValidationError
 from perfumery_app.notifications import OrderNotifier
@@ -60,7 +61,37 @@ db = Database(DATABASE_PATH, settings)
 db.initialize()
 razorpay = RazorpayClient(settings.razorpay_key_id, settings.razorpay_key_secret)
 notifier = OrderNotifier(settings)
+concierge = ScentConcierge(settings, db)
 ONLINE_PAYMENT_METHODS = {"UPI", "Netbanking", "Credit/Debit Card"}
+
+BRAND_WORDMARKS: dict[str, tuple[str, list[str]]] = {
+    "acqua di parma": ("acqua-di-parma", ["ACQUA", "DI PARMA"]),
+    "ajmal": ("ajmal", ["AJMAL"]),
+    "bvlgari": ("bvlgari", ["BVLGARI"]),
+    "byredo": ("byredo", ["BYREDO"]),
+    "carolina herrera": ("carolina-herrera", ["CAROLINA", "HERRERA"]),
+    "chanel": ("chanel", ["CHANEL"]),
+    "christian dior": ("dior", ["DIOR"]),
+    "diptyque": ("diptyque", ["DIPTYQUE"]),
+    "dolce & gabbana": ("dolce-gabbana", ["DOLCE", "& GABBANA"]),
+    "frederic malle": ("frederic-malle", ["FREDERIC", "MALLE"]),
+    "giorgio armani": ("giorgio-armani", ["GIORGIO", "ARMANI"]),
+    "guerlain": ("guerlain", ["GUERLAIN"]),
+    "gucci": ("gucci", ["GUCCI"]),
+    "hermes": ("hermes", ["HERMES"]),
+    "kilian": ("kilian", ["KILIAN"]),
+    "lancome": ("lancome", ["LANCOME"]),
+    "maison francis kurkdjian": ("mfk", ["MAISON", "FRANCIS", "KURKDJIAN"]),
+    "mfk": ("mfk", ["MAISON", "FRANCIS", "KURKDJIAN"]),
+    "penhaligon's": ("penhaligons", ["PENHALIGON'S"]),
+    "prada": ("prada", ["PRADA"]),
+    "roja": ("roja", ["ROJA"]),
+    "serge lutens": ("serge-lutens", ["SERGE", "LUTENS"]),
+    "tom ford": ("tom-ford", ["TOM", "FORD"]),
+    "valentino": ("valentino", ["VALENTINO"]),
+    "xerjoff": ("xerjoff", ["XERJOFF"]),
+    "ysl": ("ysl", ["YSL"]),
+}
 
 env = Environment(
     loader=FileSystemLoader(str(TEMPLATES_DIR)),
@@ -102,6 +133,42 @@ def render_template(name: str, context: dict) -> bytes:
     return template.render(**context).encode("utf-8")
 
 
+def normalize_brand_key(brand: str) -> str:
+    return " ".join(brand.lower().replace("and", "&").split())
+
+
+def fallback_logo_key(brand: str) -> str:
+    key = []
+    previous_dash = False
+    for character in brand.lower():
+        if character.isalnum():
+            key.append(character)
+            previous_dash = False
+        elif not previous_dash:
+            key.append("-")
+            previous_dash = True
+    return "".join(key).strip("-") or "brand"
+
+
+def build_brand_logos(rows: list[dict]) -> list[dict]:
+    logos = []
+    for row in rows:
+        brand = str(row.get("brand", "")).strip()
+        logo_key, logo_lines = BRAND_WORDMARKS.get(
+            normalize_brand_key(brand),
+            (fallback_logo_key(brand), [brand.upper()]),
+        )
+        logos.append(
+            {
+                **row,
+                "logo_key": logo_key,
+                "logo_lines": logo_lines,
+                "catalog_href": "/catalog?" + urlencode({"brand": brand}),
+            }
+        )
+    return logos
+
+
 def canonical_path(path: str) -> str:
     if path != "/" and path.endswith("/"):
         return path.rstrip("/")
@@ -120,6 +187,7 @@ class Request:
     headers: dict[str, str]
     body: bytes = b""
     request_id: str = ""
+    customer: dict | None = None
 
     @property
     def is_api(self) -> bool:
@@ -142,6 +210,7 @@ class PerfumeryApplication:
 
         try:
             request = self._build_request(environ, request_id)
+            request.customer = self.customer_from_request(request)
             response = self.dispatch(request)
         except ValidationError as exc:
             request = None
@@ -248,18 +317,64 @@ class PerfumeryApplication:
 
         if path == "/admin/login":
             context = {
-                **self.get_site_context(path),
+                **self.get_site_context(path, request),
                 "page_title": "Admin login",
                 "admin_enabled": bool(settings.admin_token),
                 "error": "",
             }
             return self.html_response(render_template("admin_login.html", context))
 
+        if path == "/account/sign-in":
+            if request.customer:
+                return self.redirect_response("/account")
+            context = {
+                **self.get_site_context(path, request),
+                "page_title": "Sign in",
+                "error": "",
+                "next_path": self.safe_next_path(first_value(query, "next") or "/account"),
+            }
+            return self.html_response(render_template("account_sign_in.html", context))
+
+        if path == "/account/sign-up":
+            if request.customer:
+                return self.redirect_response("/account")
+            context = {
+                **self.get_site_context(path, request),
+                "page_title": "Create account",
+                "error": "",
+                "form": {},
+            }
+            return self.html_response(render_template("account_sign_up.html", context))
+
+        if path == "/account":
+            if not request.customer:
+                return self.redirect_response("/account/sign-in?next=/account")
+            context = {
+                **self.get_site_context(path, request),
+                "page_title": "My account",
+                "orders": db.list_customer_orders(request.customer["id"], request.customer["email"]),
+            }
+            return self.html_response(render_template("account.html", context))
+
+        if path.startswith("/account/orders/"):
+            if not request.customer:
+                return self.redirect_response(f"/account/sign-in?{urlencode({'next': path})}")
+            order_number = path.removeprefix("/account/orders/").split("/", 1)[0]
+            order = db.get_customer_order(request.customer["id"], request.customer["email"], order_number)
+            if order is None:
+                return self.render_404(path)
+            context = {
+                **self.get_site_context(path, request),
+                "page_title": f"Order {order_number}",
+                "order": order,
+            }
+            return self.html_response(render_template("order.html", context))
+
         if path == "/admin":
             if not self.is_admin_request(request):
                 return self.redirect_response("/admin/login")
             context = {
-                **self.get_site_context(path),
+                **self.get_site_context(path, request),
                 "page_title": "Admin orders",
                 "orders": db.list_orders(),
                 "csrf_token": self.admin_csrf_token(request),
@@ -274,7 +389,7 @@ class PerfumeryApplication:
             if order is None:
                 return self.render_404(path)
             context = {
-                **self.get_site_context(path),
+                **self.get_site_context(path, request),
                 "page_title": f"Admin {order_number}",
                 "order": order,
                 "csrf_token": self.admin_csrf_token(request),
@@ -319,13 +434,15 @@ class PerfumeryApplication:
 
         if path == "/":
             featured = db.get_featured(9)
+            if not featured:
+                featured = db.list_fragrances(limit=9)
             context = {
-                **self.get_site_context(path),
+                **self.get_site_context(path, request),
                 "page_title": "Luxury niche and designer fragrances",
                 "hero_image": "/assets/hero6.jpg",
                 "showcase_image": "/assets/banner1.jpg",
                 "featured": featured,
-                "brands": db.get_brand_showcase(16),
+                "brands": build_brand_logos(db.get_brand_showcase(16)),
                 "filters": db.list_filters(),
             }
             return self.html_response(render_template("home.html", context))
@@ -341,14 +458,22 @@ class PerfumeryApplication:
             total_pages = max(1, (total_items + per_page - 1) // per_page)
             page = min(page, total_pages)
             items = db.list_fragrances(filters, limit=per_page, offset=(page - 1) * per_page)
+            search_suggestion = db.suggest_search_term(filters.get("search", ""))
+            suggestion_href = ""
+            if search_suggestion:
+                suggestion_filters = {**filters, "search": search_suggestion}
+                suggestion_query = urlencode({key: value for key, value in suggestion_filters.items() if value})
+                suggestion_href = f"/catalog?{suggestion_query}" if suggestion_query else "/catalog"
             context = {
-                **self.get_site_context(path),
+                **self.get_site_context(path, request),
                 "page_title": "Perfume catalog",
                 "catalog_items": items,
                 "catalog_total": total_items,
                 "pagination": self.catalog_pagination(filters, page, total_pages),
                 "filters": db.list_filters(),
                 "active_filters": filters,
+                "search_suggestion": search_suggestion,
+                "search_suggestion_href": suggestion_href,
             }
             return self.html_response(render_template("catalog.html", context))
 
@@ -358,7 +483,7 @@ class PerfumeryApplication:
             if fragrance is None:
                 return self.render_404(path)
             context = {
-                **self.get_site_context(path),
+                **self.get_site_context(path, request),
                 "page_title": f"{fragrance['brand']} {fragrance['name']}",
                 "fragrance": fragrance,
                 "related_items": db.get_related_fragrances(fragrance),
@@ -367,14 +492,14 @@ class PerfumeryApplication:
 
         if path == "/cart":
             context = {
-                **self.get_site_context(path),
+                **self.get_site_context(path, request),
                 "page_title": "Your fragrance cart",
             }
             return self.html_response(render_template("cart.html", context))
 
         if path == "/checkout":
             context = {
-                **self.get_site_context(path),
+                **self.get_site_context(path, request),
                 "page_title": "Checkout",
             }
             return self.html_response(render_template("checkout.html", context))
@@ -387,7 +512,7 @@ class PerfumeryApplication:
             if order is None:
                 return self.render_404(path)
             context = {
-                **self.get_site_context(path),
+                **self.get_site_context(path, request),
                 "page_title": f"Order {order_number}",
                 "order": order,
             }
@@ -398,6 +523,59 @@ class PerfumeryApplication:
     def handle_post(self, request: Request) -> Response:
         path = request.path
 
+        if path == "/account/sign-up":
+            fields = self.read_form_body(request)
+            try:
+                password = fields.get("password", "")
+                if password != fields.get("confirm_password", ""):
+                    raise ValidationError("Passwords do not match.")
+                customer = db.create_customer(
+                    fields.get("full_name", ""),
+                    fields.get("email", ""),
+                    password,
+                )
+                session_token = db.create_customer_session(customer["id"])
+                return self.redirect_response(
+                    "/account",
+                    headers=[("Set-Cookie", self.build_customer_cookie(session_token))],
+                )
+            except ValidationError as exc:
+                context = {
+                    **self.get_site_context(path, request),
+                    "page_title": "Create account",
+                    "error": str(exc),
+                    "form": {
+                        "full_name": fields.get("full_name", ""),
+                        "email": fields.get("email", ""),
+                    },
+                }
+                return self.html_response(render_template("account_sign_up.html", context), status=HTTPStatus.UNPROCESSABLE_ENTITY)
+
+        if path == "/account/sign-in":
+            fields = self.read_form_body(request)
+            next_path = self.safe_next_path(fields.get("next", "") or "/account")
+            customer = db.authenticate_customer(fields.get("email", ""), fields.get("password", ""))
+            if customer is None:
+                context = {
+                    **self.get_site_context(path, request),
+                    "page_title": "Sign in",
+                    "error": "Invalid email or password.",
+                    "next_path": next_path,
+                }
+                return self.html_response(render_template("account_sign_in.html", context), status=HTTPStatus.UNAUTHORIZED)
+            session_token = db.create_customer_session(customer["id"])
+            return self.redirect_response(
+                next_path,
+                headers=[("Set-Cookie", self.build_customer_cookie(session_token))],
+            )
+
+        if path == "/account/sign-out":
+            db.delete_customer_session(self.customer_cookie_value(request))
+            return self.redirect_response(
+                "/",
+                headers=[("Set-Cookie", self.clear_customer_cookie())],
+            )
+
         if path == "/admin/login":
             fields = self.read_form_body(request)
             submitted_token = fields.get("admin_token", "")
@@ -407,7 +585,7 @@ class PerfumeryApplication:
                     headers=[("Set-Cookie", self.build_admin_cookie())],
                 )
             context = {
-                **self.get_site_context(path),
+                **self.get_site_context(path, request),
                 "page_title": "Admin login",
                 "admin_enabled": bool(settings.admin_token),
                 "error": "Invalid admin token." if settings.admin_token else "Admin token is not configured.",
@@ -433,6 +611,29 @@ class PerfumeryApplication:
                 return self.json_response({"error": str(exc)}, status=HTTPStatus.UNPROCESSABLE_ENTITY)
             return self.redirect_response(f"/admin/orders/{order_number}")
 
+        if path == "/api/concierge":
+            if not settings.ai_concierge_enabled:
+                return self.json_response(
+                    {"error": "The scent concierge is currently unavailable."},
+                    status=HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+            try:
+                payload = self.read_json_body(request)
+                message = str(payload.get("message", "")).strip()
+                if len(message) < 3:
+                    raise ValidationError("Tell the concierge a little more about the scent you want.")
+                return self.json_response(concierge.recommend(message))
+            except ValidationError as exc:
+                return self.json_response({"error": str(exc)}, status=HTTPStatus.UNPROCESSABLE_ENTITY)
+            except json.JSONDecodeError:
+                return self.json_response({"error": "Invalid JSON body."}, status=HTTPStatus.BAD_REQUEST)
+            except Exception as exc:  # pragma: no cover
+                logger.exception("Concierge request failed", extra={"request_id": request.request_id})
+                return self.json_response(
+                    {"error": f"Unable to prepare concierge recommendations: {exc}"},
+                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+
         if path == "/api/orders":
             if not settings.enable_manual_checkout:
                 return self.json_response(
@@ -441,10 +642,13 @@ class PerfumeryApplication:
                 )
             try:
                 payload = self.read_json_body(request)
+                customer_id = request.customer["id"] if request.customer else None
+                if request.customer:
+                    payload = self.attach_account_to_payload(payload, request.customer)
                 customer = payload.get("customer") or {}
                 if customer.get("payment_method") in ONLINE_PAYMENT_METHODS:
                     raise ValidationError("Use the Razorpay checkout flow for online payments.")
-                order = db.create_order(payload)
+                order = db.create_order(payload, customer_id=customer_id)
                 notify_order_once(order)
                 return self.json_response({"order": order}, status=HTTPStatus.CREATED)
             except ValidationError as exc:
@@ -463,6 +667,9 @@ class PerfumeryApplication:
 
             try:
                 payload = self.read_json_body(request)
+                customer_id = request.customer["id"] if request.customer else None
+                if request.customer:
+                    payload = self.attach_account_to_payload(payload, request.customer)
                 customer = payload.get("customer") or {}
                 items = payload.get("items") or []
                 if customer.get("payment_method") not in ONLINE_PAYMENT_METHODS:
@@ -481,6 +688,7 @@ class PerfumeryApplication:
                     customer=customer,
                     items=items,
                     gateway_order_id=gateway_order["id"],
+                    customer_id=customer_id,
                 )
                 return self.json_response(
                     {
@@ -634,15 +842,17 @@ class PerfumeryApplication:
             "next_href": href(page + 1) if page < total_pages else "",
         }
 
-    def get_site_context(self, path: str) -> dict:
+    def get_site_context(self, path: str, request: Request | None = None) -> dict:
         metrics = db.get_metrics()
         preview_label = os.getenv("PREVIEW_LABEL", "").strip()
         if not preview_label and not settings.is_production:
             preview_label = settings.app_env.upper()
+        current_customer = request.customer if request else None
         return {
             "site_name": settings.site_name,
             "site_logo": "/assets/perfume-logo.png",
             "current_path": path,
+            "current_customer": current_customer,
             "asset_version": ASSET_VERSION,
             "preview_label": preview_label,
             "site_metrics": metrics,
@@ -651,13 +861,16 @@ class PerfumeryApplication:
                 "razorpay_key_id": settings.razorpay_key_id,
                 "manual_checkout_enabled": settings.enable_manual_checkout,
             },
+            "concierge": {
+                "enabled": settings.ai_concierge_enabled,
+                "ai_enabled": bool(settings.openai_api_key),
+            },
             "nav_links": [
                 {"href": "/", "label": "Home"},
                 {"href": "/catalog?collection_type=niche", "label": "Niche"},
                 {"href": "/catalog?collection_type=designer", "label": "Designer"},
                 {"href": "/catalog?sale_type=decant", "label": "Decants"},
                 {"href": "/catalog?sale_type=partial", "label": "Partials"},
-                {"href": "/checkout", "label": "Checkout"},
             ],
             "support_brands": [
                 "Creed",
@@ -673,6 +886,15 @@ class PerfumeryApplication:
                 "YSL",
             ],
         }
+
+    def attach_account_to_payload(self, payload: dict, customer: dict) -> dict:
+        updated = dict(payload)
+        customer_payload = dict(updated.get("customer") or {})
+        customer_payload["email"] = customer["email"]
+        if not customer_payload.get("customer_name"):
+            customer_payload["customer_name"] = customer["full_name"]
+        updated["customer"] = customer_payload
+        return updated
 
     def read_json_body(self, request: Request) -> dict:
         body = request.body or b"{}"
@@ -737,6 +959,49 @@ class PerfumeryApplication:
         if settings.enforce_hsts:
             attributes.append("Secure")
         return "; ".join(attributes)
+
+    def customer_from_request(self, request: Request) -> dict | None:
+        return db.get_customer_by_session_token(self.customer_cookie_value(request))
+
+    def customer_cookie_value(self, request: Request) -> str:
+        cookie_header = request.headers.get("cookie", "")
+        for part in cookie_header.split(";"):
+            name, _, value = part.strip().partition("=")
+            if name == "ts_customer":
+                return value
+        return ""
+
+    def build_customer_cookie(self, session_token: str) -> str:
+        attributes = [
+            f"ts_customer={session_token}",
+            "Path=/",
+            "HttpOnly",
+            "SameSite=Lax",
+            "Max-Age=2592000",
+        ]
+        if settings.enforce_hsts:
+            attributes.append("Secure")
+        return "; ".join(attributes)
+
+    def clear_customer_cookie(self) -> str:
+        attributes = [
+            "ts_customer=",
+            "Path=/",
+            "HttpOnly",
+            "SameSite=Lax",
+            "Max-Age=0",
+        ]
+        if settings.enforce_hsts:
+            attributes.append("Secure")
+        return "; ".join(attributes)
+
+    def safe_next_path(self, path: str) -> str:
+        path = str(path or "").strip()
+        if not path.startswith("/") or path.startswith("//"):
+            return "/account"
+        if path.startswith("/admin"):
+            return "/account"
+        return path
 
     def html_response(
         self,

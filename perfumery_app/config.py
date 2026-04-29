@@ -60,6 +60,9 @@ class Settings:
     smtp_username: str
     smtp_password: str
     smtp_use_tls: bool
+    ai_concierge_enabled: bool
+    openai_api_key: str
+    openai_model: str
 
     @property
     def razorpay_enabled(self) -> bool:
@@ -134,4 +137,7 @@ def load_settings() -> Settings:
         smtp_username=os.getenv("SMTP_USERNAME", "").strip(),
         smtp_password=os.getenv("SMTP_PASSWORD", "").strip(),
         smtp_use_tls=env_flag("SMTP_USE_TLS", True),
+        ai_concierge_enabled=env_flag("AI_CONCIERGE_ENABLED", True),
+        openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
+        openai_model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip() or "gpt-4.1-mini",
     )

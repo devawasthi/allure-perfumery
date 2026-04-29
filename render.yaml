@@ -81,3 +81,9 @@ services:
         sync: false
       - key: SMTP_USE_TLS
         value: "true"
+      - key: AI_CONCIERGE_ENABLED
+        value: "true"
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4.1-mini

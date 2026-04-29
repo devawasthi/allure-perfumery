@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="utility-hero">
+    <p class="section-kicker">Account</p>
+    <h1>Sign in</h1>
+    <p>Access your order history and keep checkout details connected to your account.</p>
+  </section>
+
+  <section class="auth-shell">
+    <article class="order-card auth-card">
+      <form class="checkout-form" action="/account/sign-in" method="post">
+        <input type="hidden" name="next" value="{{ next_path }}" />
+        <label>
+          Email
+          <input type="email" name="email" autocomplete="email" inputmode="email" required />
+        </label>
+        <label>
+          Password
+          <input type="password" name="password" autocomplete="current-password" required />
+        </label>
+        {% if error %}
+          <p class="checkout-form__status is-error">{{ error }}</p>
+        {% endif %}
+        <button class="button button--full" type="submit">Sign in</button>
+      </form>
+      <p class="auth-card__switch">
+        New to The Scentist?
+        <a href="/account/sign-up">Create an account</a>
+      </p>
+    </article>
+  </section>
+{% endblock %}
