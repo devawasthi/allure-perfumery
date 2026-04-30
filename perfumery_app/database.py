@@ -100,7 +100,7 @@ class PostgresConnection(DatabaseConnection):
 
     @staticmethod
     def _convert_sql(sql: str) -> str:
-        return sql.replace("?", "%s")
+        return sql.replace("%", "%%").replace("?", "%s")
 
 
 class SQLiteBackend:
