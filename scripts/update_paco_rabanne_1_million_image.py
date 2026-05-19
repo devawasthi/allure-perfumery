@@ -9,7 +9,9 @@ from pathlib import Path
 
 
 IMAGE_URL = "/assets/paco-rabanne-1-million.png"
-WHERE_SQL = "lower(brand) = 'paco rabanne' AND lower(name) LIKE '%1 million%'"
+WHERE_SQLITE = "lower(brand) = 'paco rabanne' AND lower(name) LIKE ?"
+WHERE_POSTGRES = "lower(brand) = 'paco rabanne' AND lower(name) LIKE %s"
+NAME_PATTERN = "%1 million%"
 
 
 def update_sqlite(path: Path) -> int:
@@ -20,9 +22,9 @@ def update_sqlite(path: Path) -> int:
                SET image_url = ?,
                    photo_icon_url = ?,
                    artwork_kind = 'photo'
-             WHERE {WHERE_SQL}
+             WHERE {WHERE_SQLITE}
             """,
-            (IMAGE_URL, IMAGE_URL),
+            (IMAGE_URL, IMAGE_URL, NAME_PATTERN),
         )
         return cursor.rowcount
 
@@ -43,9 +45,9 @@ def update_postgres(database_url: str) -> int:
                    SET image_url = %s,
                        photo_icon_url = %s,
                        artwork_kind = 'photo'
-                 WHERE {WHERE_SQL}
+                 WHERE {WHERE_POSTGRES}
                 """,
-                (IMAGE_URL, IMAGE_URL),
+                (IMAGE_URL, IMAGE_URL, NAME_PATTERN),
             )
             return cursor.rowcount or 0
 
