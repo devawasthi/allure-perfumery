@@ -375,11 +375,75 @@ class PerfumeryApplication:
                 return self.redirect_response("/admin/login")
             context = {
                 **self.get_site_context(path, request),
+                "page_title": "Admin dashboard",
+                "summary": db.get_admin_summary(),
+                "recent_orders": db.list_orders(limit=8),
+                "csrf_token": self.admin_csrf_token(request),
+            }
+            return self.html_response(render_template("admin_dashboard.html", context))
+
+        if path == "/admin/orders":
+            if not self.is_admin_request(request):
+                return self.redirect_response("/admin/login")
+            context = {
+                **self.get_site_context(path, request),
                 "page_title": "Admin orders",
                 "orders": db.list_orders(),
                 "csrf_token": self.admin_csrf_token(request),
             }
             return self.html_response(render_template("admin_orders.html", context))
+
+        if path == "/admin/fragrances":
+            if not self.is_admin_request(request):
+                return self.redirect_response("/admin/login")
+            search = first_value(query, "q")
+            status = first_value(query, "status") or "active"
+            if status not in {"active", "archived", "all"}:
+                status = "active"
+            context = {
+                **self.get_site_context(path, request),
+                "page_title": "Admin inventory",
+                "summary": db.get_admin_summary(),
+                "items": db.list_admin_fragrances(search=search, status=status),
+                "search": search,
+                "status": status,
+                "csrf_token": self.admin_csrf_token(request),
+            }
+            return self.html_response(render_template("admin_fragrances.html", context))
+
+        if path == "/admin/fragrances/new":
+            if not self.is_admin_request(request):
+                return self.redirect_response("/admin/login")
+            context = {
+                **self.get_site_context(path, request),
+                "page_title": "Add fragrance",
+                "mode": "new",
+                "form": self.admin_fragrance_form_data(),
+                "fragrance": None,
+                "error": "",
+                "csrf_token": self.admin_csrf_token(request),
+            }
+            return self.html_response(render_template("admin_fragrance_form.html", context))
+
+        if path.startswith("/admin/fragrances/") and path.endswith("/edit"):
+            if not self.is_admin_request(request):
+                return self.redirect_response("/admin/login")
+            slug = path.removeprefix("/admin/fragrances/").removesuffix("/edit").strip("/")
+            fragrance = db.get_admin_fragrance(slug)
+            if fragrance is None:
+                return self.render_404(path)
+            context = {
+                **self.get_site_context(path, request),
+                "page_title": f"Edit {fragrance['name']}",
+                "mode": "edit",
+                "form": self.admin_fragrance_form_data(fragrance),
+                "fragrance": fragrance,
+                "variant_form": self.admin_variant_form_data(),
+                "error": "",
+                "variant_error": "",
+                "csrf_token": self.admin_csrf_token(request),
+            }
+            return self.html_response(render_template("admin_fragrance_form.html", context))
 
         if path.startswith("/admin/orders/"):
             if not self.is_admin_request(request):
@@ -440,12 +504,72 @@ class PerfumeryApplication:
                 **self.get_site_context(path, request),
                 "page_title": "Luxury niche and designer fragrances",
                 "hero_image": "/assets/hero6.jpg",
-                "showcase_image": "/assets/banner1.jpg",
+                "hero_images": [
+                    "/assets/hero6.jpg",
+                    "/assets/louis-vuitton-pink-hero.png",
+                    "/assets/louis-vuitton-on-the-beach.jpg",
+                ],
+                "showcase_image": "/assets/louis-vuitton-on-the-beach.jpg",
+                "motion_video": "/assets/louis-vuitton.mp4",
+                "motion_poster": "/assets/louis-vuitton-on-the-beach.jpg",
+                "motion_images": [
+                    "/assets/hero6.jpg",
+                    "/assets/louis-vuitton-pink-hero.png",
+                    "/assets/louis-vuitton-on-the-beach.jpg",
+                ],
+                "center_discovery": {
+                    "kicker": "Louis Vuitton",
+                    "title": "A sunlit escape in motion.",
+                    "href": "/catalog?brand=Louis%20Vuitton",
+                },
+                "left_discovery": {
+                    "image": "/assets/creed1.jpeg",
+                    "kicker": "For Him",
+                    "title": "Bold signatures with presence.",
+                    "href": "/catalog?gender=him",
+                },
+                "right_discovery": {
+                    "image": "/assets/her11.jpg",
+                    "kicker": "For Her",
+                    "title": "Soft trails, luminous evenings.",
+                    "href": "/catalog?gender=her",
+                },
                 "featured": featured,
                 "brands": build_brand_logos(db.get_brand_showcase(16)),
                 "filters": db.list_filters(),
             }
             return self.html_response(render_template("home.html", context))
+
+        if path == "/animation-lab":
+            context = {
+                **self.get_site_context(path, request),
+                "page_title": "Animation Lab",
+                "motion_video": "/assets/louis-vuitton.mp4",
+                "motion_poster": "/assets/louis-vuitton-on-the-beach.jpg",
+                "motion_images": [
+                    "/assets/hero6.jpg",
+                    "/assets/louis-vuitton-pink-hero.png",
+                    "/assets/louis-vuitton-on-the-beach.jpg",
+                ],
+                "center_discovery": {
+                    "kicker": "Louis Vuitton",
+                    "title": "A sunlit escape in motion.",
+                    "href": "/catalog?brand=Louis%20Vuitton",
+                },
+                "left_discovery": {
+                    "image": "/assets/creed1.jpeg",
+                    "kicker": "For Him",
+                    "title": "Bold signatures with presence.",
+                    "href": "/catalog?gender=him",
+                },
+                "right_discovery": {
+                    "image": "/assets/her11.jpg",
+                    "kicker": "For Her",
+                    "title": "Soft trails, luminous evenings.",
+                    "href": "/catalog?gender=her",
+                },
+            }
+            return self.html_response(render_template("animation_lab.html", context))
 
         if path == "/catalog":
             filters = self.extract_filters(query)
@@ -598,12 +722,93 @@ class PerfumeryApplication:
                 headers=[("Set-Cookie", self.clear_admin_cookie())],
             )
 
+        if path == "/admin/fragrances":
+            if not self.is_admin_request(request):
+                return self.redirect_response("/admin/login")
+            fields = self.read_form_body(request)
+            csrf_error = self.validate_admin_csrf(request, fields)
+            if csrf_error:
+                return csrf_error
+            try:
+                fragrance = db.save_admin_fragrance(fields)
+                return self.redirect_response(f"/admin/fragrances/{fragrance['slug']}/edit")
+            except ValidationError as exc:
+                context = {
+                    **self.get_site_context(path, request),
+                    "page_title": "Add fragrance",
+                    "mode": "new",
+                    "form": self.admin_fragrance_form_data(fields=fields),
+                    "fragrance": None,
+                    "error": str(exc),
+                    "csrf_token": self.admin_csrf_token(request),
+                }
+                return self.html_response(
+                    render_template("admin_fragrance_form.html", context),
+                    status=HTTPStatus.UNPROCESSABLE_ENTITY,
+                )
+
+        if path.startswith("/admin/fragrances/"):
+            if not self.is_admin_request(request):
+                return self.redirect_response("/admin/login")
+            fields = self.read_form_body(request)
+            csrf_error = self.validate_admin_csrf(request, fields)
+            if csrf_error:
+                return csrf_error
+
+            parts = path.removeprefix("/admin/fragrances/").split("/")
+            slug = parts[0] if parts else ""
+            action = parts[1] if len(parts) > 1 else ""
+            fragrance = db.get_admin_fragrance(slug)
+            if fragrance is None:
+                return self.render_404(path)
+
+            try:
+                if action == "save":
+                    saved = db.save_admin_fragrance(fields, current_slug=slug)
+                    return self.redirect_response(f"/admin/fragrances/{saved['slug']}/edit")
+                if action == "archive":
+                    db.set_admin_fragrance_active(slug, False)
+                    return self.redirect_response("/admin/fragrances?status=archived")
+                if action == "restore":
+                    db.set_admin_fragrance_active(slug, True)
+                    return self.redirect_response(f"/admin/fragrances/{slug}/edit")
+                if action == "delete":
+                    result = db.delete_admin_fragrance(slug)
+                    status_query = "archived" if result == "archived" else "all"
+                    return self.redirect_response(f"/admin/fragrances?status={status_query}")
+                if action == "variants":
+                    if len(parts) >= 4 and parts[2].isdigit() and parts[3] == "delete":
+                        db.delete_admin_variant(slug, int(parts[2]))
+                    else:
+                        db.save_admin_variant(slug, fields)
+                    return self.redirect_response(f"/admin/fragrances/{slug}/edit#variants")
+            except ValidationError as exc:
+                refreshed = db.get_admin_fragrance(slug) or fragrance
+                context = {
+                    **self.get_site_context(path, request),
+                    "page_title": f"Edit {refreshed['name']}",
+                    "mode": "edit",
+                    "form": self.admin_fragrance_form_data(fields=fields if action == "save" else None, fragrance=refreshed),
+                    "fragrance": refreshed,
+                    "variant_form": self.admin_variant_form_data(fields if action == "variants" else None),
+                    "error": str(exc) if action == "save" else "",
+                    "variant_error": str(exc) if action == "variants" else "",
+                    "csrf_token": self.admin_csrf_token(request),
+                }
+                return self.html_response(
+                    render_template("admin_fragrance_form.html", context),
+                    status=HTTPStatus.UNPROCESSABLE_ENTITY,
+                )
+
+            return self.json_response({"error": "Unsupported admin fragrance action."}, status=HTTPStatus.NOT_FOUND)
+
         if path.startswith("/admin/orders/") and path.endswith("/status"):
             if not self.is_admin_request(request):
                 return self.redirect_response("/admin/login")
             fields = self.read_form_body(request)
-            if not secrets.compare_digest(fields.get("csrf_token", ""), self.admin_csrf_token(request)):
-                return self.json_response({"error": "Invalid admin form token."}, status=HTTPStatus.FORBIDDEN)
+            csrf_error = self.validate_admin_csrf(request, fields)
+            if csrf_error:
+                return csrf_error
             order_number = path.removeprefix("/admin/orders/").removesuffix("/status").strip("/")
             try:
                 db.update_order_status(order_number, fields.get("status", ""))
@@ -823,6 +1028,7 @@ class PerfumeryApplication:
             "collection_type": first_value(query, "collection_type"),
             "family": first_value(query, "family"),
             "sale_type": first_value(query, "sale_type"),
+            "sort": first_value(query, "sort"),
         }
 
     def catalog_pagination(self, filters: dict[str, str], page: int, total_pages: int) -> dict[str, Any]:
@@ -867,11 +1073,20 @@ class PerfumeryApplication:
             },
             "nav_links": [
                 {"href": "/", "label": "Home"},
-                {"href": "/catalog?collection_type=niche", "label": "Niche"},
-                {"href": "/catalog?collection_type=designer", "label": "Designer"},
-                {"href": "/catalog?sale_type=decant", "label": "Decants"},
-                {"href": "/catalog?sale_type=partial", "label": "Partials"},
+                {
+                    "href": "/catalog",
+                    "label": "Fragrances",
+                    "children": [
+                        {"href": "/catalog?sale_type=retail", "label": "Retail"},
+                        {"href": "/catalog?sale_type=decant", "label": "Decants"},
+                        {"href": "/catalog?sale_type=partial", "label": "Partials"},
+                        {"href": "/catalog?sale_type=tester", "label": "Testers"},
+                    ],
+                },
+                {"href": "/#brands", "label": "Brands", "mega": "brands"},
+                {"href": "/#scent-concierge", "label": "Concierge"},
             ],
+            "nav_brand_groups": db.list_brand_groups(),
             "support_brands": [
                 "Creed",
                 "Amouage",
@@ -922,6 +1137,109 @@ class PerfumeryApplication:
             f"csrf:{cookie}".encode("utf-8"),
             hashlib.sha256,
         ).hexdigest()
+
+    def validate_admin_csrf(self, request: Request, fields: dict[str, str]) -> Response | None:
+        if secrets.compare_digest(fields.get("csrf_token", ""), self.admin_csrf_token(request)):
+            return None
+        return self.json_response({"error": "Invalid admin form token."}, status=HTTPStatus.FORBIDDEN)
+
+    def admin_fragrance_form_data(
+        self,
+        fragrance: dict | None = None,
+        *,
+        fields: dict[str, str] | None = None,
+    ) -> dict:
+        if fields is not None:
+            return {
+                "slug": fields.get("slug", ""),
+                "brand": fields.get("brand", ""),
+                "name": fields.get("name", ""),
+                "collection_type": fields.get("collection_type", "niche"),
+                "gender": fields.get("gender", "unisex"),
+                "family": fields.get("family", ""),
+                "concentration": fields.get("concentration", "Eau de Parfum"),
+                "origin": fields.get("origin", "Imported"),
+                "description": fields.get("description", ""),
+                "signature": fields.get("signature", ""),
+                "top_notes": fields.get("top_notes", ""),
+                "heart_notes": fields.get("heart_notes", ""),
+                "base_notes": fields.get("base_notes", ""),
+                "accent_from": fields.get("accent_from", "#c2b4a3"),
+                "accent_to": fields.get("accent_to", "#17120f"),
+                "image_url": fields.get("image_url", ""),
+                "photo_icon_url": fields.get("photo_icon_url", ""),
+                "artwork_kind": fields.get("artwork_kind", "photo"),
+                "bottle_size_ml": fields.get("bottle_size_ml", "100"),
+                "featured": fields.get("featured") == "on",
+                "rank": fields.get("rank", "999"),
+                "is_active": fields.get("is_active") == "on",
+            }
+
+        if fragrance is None:
+            return {
+                "slug": "",
+                "brand": "",
+                "name": "",
+                "collection_type": "niche",
+                "gender": "unisex",
+                "family": "",
+                "concentration": "Eau de Parfum",
+                "origin": "Imported",
+                "description": "",
+                "signature": "",
+                "top_notes": "",
+                "heart_notes": "",
+                "base_notes": "",
+                "accent_from": "#c2b4a3",
+                "accent_to": "#17120f",
+                "image_url": "",
+                "photo_icon_url": "",
+                "artwork_kind": "photo",
+                "bottle_size_ml": "100",
+                "featured": False,
+                "rank": "999",
+                "is_active": True,
+            }
+
+        return {
+            "slug": fragrance.get("slug", ""),
+            "brand": fragrance.get("brand", ""),
+            "name": fragrance.get("name", ""),
+            "collection_type": fragrance.get("collection_type", "niche"),
+            "gender": fragrance.get("gender", "unisex"),
+            "family": fragrance.get("family", ""),
+            "concentration": fragrance.get("concentration", "Eau de Parfum"),
+            "origin": fragrance.get("origin", "Imported"),
+            "description": fragrance.get("description", ""),
+            "signature": fragrance.get("signature", ""),
+            "top_notes": ", ".join(fragrance.get("top_notes") or []),
+            "heart_notes": ", ".join(fragrance.get("heart_notes") or []),
+            "base_notes": ", ".join(fragrance.get("base_notes") or []),
+            "accent_from": fragrance.get("accent_from", "#c2b4a3"),
+            "accent_to": fragrance.get("accent_to", "#17120f"),
+            "image_url": fragrance.get("image_url", ""),
+            "photo_icon_url": fragrance.get("photo_icon_url", ""),
+            "artwork_kind": fragrance.get("artwork_kind", "photo"),
+            "bottle_size_ml": str(fragrance.get("bottle_size_ml", 100)),
+            "featured": bool(fragrance.get("featured")),
+            "rank": str(fragrance.get("rank", 999)),
+            "is_active": bool(fragrance.get("is_active", True)),
+        }
+
+    def admin_variant_form_data(self, fields: dict[str, str] | None = None) -> dict:
+        fields = fields or {}
+        return {
+            "variant_id": fields.get("variant_id", ""),
+            "sku": fields.get("sku", ""),
+            "sale_type": fields.get("sale_type", "retail"),
+            "size_label": fields.get("size_label", ""),
+            "size_ml": fields.get("size_ml", "100"),
+            "price_inr": fields.get("price_inr", ""),
+            "compare_at_price_inr": fields.get("compare_at_price_inr", "0"),
+            "stock_units": fields.get("stock_units", "1"),
+            "badge": fields.get("badge", ""),
+            "statement": fields.get("statement", ""),
+        }
 
     def admin_cookie_value(self, request: Request) -> str:
         cookie_header = request.headers.get("cookie", "")

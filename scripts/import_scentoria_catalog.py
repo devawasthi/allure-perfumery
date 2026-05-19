@@ -235,6 +235,9 @@ def build_import_rows(
             variant_title = variant["size_or_format"].strip() or variant["variant_title"].strip() or "Retail"
             sku = f"scentoria-{variant['variant_id']}"
             price = parse_money(variant["price_inr"]) + price_markup_inr
+            compare_at = parse_money(variant.get("compare_at_price_inr", ""))
+            if compare_at:
+                compare_at += price_markup_inr
             variant_rows.append(
                 (
                     slug,
@@ -243,6 +246,7 @@ def build_import_rows(
                     variant_title,
                     size_ml(variant_title),
                     price,
+                    compare_at,
                     stock_units,
                     "Imported",
                     f"Imported Scentoria listing. Original listed price plus INR {price_markup_inr:,}.",
@@ -301,6 +305,7 @@ def upsert_products_postgres(
         "size_label",
         "size_ml",
         "price_inr",
+        "compare_at_price_inr",
         "stock_units",
         "badge",
         "statement",
@@ -361,6 +366,7 @@ def upsert_products_postgres(
                     size_label TEXT NOT NULL,
                     size_ml INTEGER NOT NULL,
                     price_inr INTEGER NOT NULL,
+                    compare_at_price_inr INTEGER NOT NULL DEFAULT 0,
                     stock_units INTEGER NOT NULL,
                     badge TEXT NOT NULL,
                     statement TEXT NOT NULL
@@ -435,7 +441,7 @@ def upsert_products_postgres(
             conn.execute(
                 """
                 INSERT INTO variants (
-                    fragrance_id, sku, sale_type, size_label, size_ml, price_inr,
+                    fragrance_id, sku, sale_type, size_label, size_ml, price_inr, compare_at_price_inr,
                     stock_units, badge, statement
                 )
                 SELECT
@@ -445,6 +451,7 @@ def upsert_products_postgres(
                     v.size_label,
                     v.size_ml,
                     v.price_inr,
+                    v.compare_at_price_inr,
                     v.stock_units,
                     v.badge,
                     v.statement
@@ -456,6 +463,7 @@ def upsert_products_postgres(
                     size_label = excluded.size_label,
                     size_ml = excluded.size_ml,
                     price_inr = excluded.price_inr,
+                    compare_at_price_inr = excluded.compare_at_price_inr,
                     stock_units = excluded.stock_units,
                     badge = excluded.badge,
                     statement = excluded.statement
@@ -611,15 +619,16 @@ def upsert_products(
                     conn.execute(
                         """
                         INSERT INTO variants (
-                            fragrance_id, sku, sale_type, size_label, size_ml, price_inr,
+                            fragrance_id, sku, sale_type, size_label, size_ml, price_inr, compare_at_price_inr,
                             stock_units, badge, statement
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(sku) DO UPDATE SET
                             fragrance_id = excluded.fragrance_id,
                             sale_type = excluded.sale_type,
                             size_label = excluded.size_label,
                             size_ml = excluded.size_ml,
                             price_inr = excluded.price_inr,
+                            compare_at_price_inr = excluded.compare_at_price_inr,
                             stock_units = excluded.stock_units,
                             badge = excluded.badge,
                             statement = excluded.statement
@@ -631,6 +640,7 @@ def upsert_products(
                             variant_title,
                             size_ml(variant_title),
                             price,
+                            compare_at,
                             stock_units,
                             "Imported",
                             f"Imported Scentoria listing. Original listed price plus INR {price_markup_inr:,}.",

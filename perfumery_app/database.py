@@ -10,8 +10,9 @@ import hashlib
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
-from perfumery_app.catalog_seed import build_catalog_seed
+from perfumery_app.catalog_seed import build_catalog_seed, slugify
 from perfumery_app.config import Settings
 
 
@@ -268,7 +269,8 @@ class Database:
                 artwork_kind TEXT NOT NULL DEFAULT 'generated',
                 bottle_size_ml INTEGER NOT NULL,
                 featured INTEGER NOT NULL DEFAULT 0,
-                rank INTEGER NOT NULL
+                rank INTEGER NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1
             )
             """,
             """
@@ -280,6 +282,7 @@ class Database:
                 size_label TEXT NOT NULL,
                 size_ml INTEGER NOT NULL,
                 price_inr INTEGER NOT NULL,
+                compare_at_price_inr INTEGER NOT NULL DEFAULT 0,
                 stock_units INTEGER NOT NULL,
                 badge TEXT NOT NULL,
                 statement TEXT NOT NULL,
@@ -401,7 +404,8 @@ class Database:
                 artwork_kind TEXT NOT NULL DEFAULT 'generated',
                 bottle_size_ml INTEGER NOT NULL,
                 featured SMALLINT NOT NULL DEFAULT 0,
-                rank INTEGER NOT NULL
+                rank INTEGER NOT NULL,
+                is_active SMALLINT NOT NULL DEFAULT 1
             )
             """,
             """
@@ -413,6 +417,7 @@ class Database:
                 size_label TEXT NOT NULL,
                 size_ml INTEGER NOT NULL,
                 price_inr INTEGER NOT NULL,
+                compare_at_price_inr INTEGER NOT NULL DEFAULT 0,
                 stock_units INTEGER NOT NULL,
                 badge TEXT NOT NULL,
                 statement TEXT NOT NULL
@@ -521,6 +526,14 @@ class Database:
                 "bottle_size_ml": "INTEGER NOT NULL DEFAULT 100",
                 "featured": "INTEGER NOT NULL DEFAULT 0",
                 "rank": "INTEGER NOT NULL DEFAULT 999",
+                "is_active": "INTEGER NOT NULL DEFAULT 1",
+            },
+        )
+        self._ensure_columns(
+            conn,
+            "variants",
+            {
+                "compare_at_price_inr": "INTEGER NOT NULL DEFAULT 0",
             },
         )
         self._ensure_columns(
@@ -587,8 +600,8 @@ class Database:
             INSERT INTO fragrances (
                 slug, brand, name, collection_type, gender, family, concentration,
                 origin, description, signature, top_notes, heart_notes, base_notes,
-                accent_from, accent_to, image_url, photo_icon_url, artwork_kind, bottle_size_ml, featured, rank
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                accent_from, accent_to, image_url, photo_icon_url, artwork_kind, bottle_size_ml, featured, rank, is_active
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(slug) DO UPDATE SET
                 brand = excluded.brand,
                 name = excluded.name,
@@ -633,6 +646,7 @@ class Database:
                 item["bottle_size_ml"],
                 1 if item["featured"] else 0,
                 item["rank"],
+                1,
             ),
         )
         row = conn.execute("SELECT id FROM fragrances WHERE slug = ?", (item["slug"],)).fetchone()
@@ -651,15 +665,16 @@ class Database:
             conn.execute(
                 """
                 INSERT INTO variants (
-                    fragrance_id, sku, sale_type, size_label, size_ml, price_inr,
+                    fragrance_id, sku, sale_type, size_label, size_ml, price_inr, compare_at_price_inr,
                     stock_units, badge, statement
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(sku) DO UPDATE SET
                     fragrance_id = excluded.fragrance_id,
                     sale_type = excluded.sale_type,
                     size_label = excluded.size_label,
                     size_ml = excluded.size_ml,
                     price_inr = excluded.price_inr,
+                    compare_at_price_inr = excluded.compare_at_price_inr,
                     stock_units = excluded.stock_units,
                     badge = excluded.badge,
                     statement = excluded.statement
@@ -671,6 +686,7 @@ class Database:
                     variant["size_label"],
                     variant["size_ml"],
                     variant["price_inr"],
+                    variant.get("compare_at_price_inr", 0),
                     variant["stock_units"],
                     variant["badge"],
                     variant["statement"],
@@ -900,13 +916,24 @@ class Database:
 
     def list_filters(self) -> dict[str, list[str]]:
         with self.connect() as conn:
-            brands = [row["brand"] for row in conn.execute("SELECT DISTINCT brand FROM fragrances ORDER BY brand")]
-            families = [row["family"] for row in conn.execute("SELECT DISTINCT family FROM fragrances ORDER BY family")]
+            brands = [row["brand"] for row in conn.execute("SELECT DISTINCT brand FROM fragrances WHERE is_active = 1 ORDER BY brand")]
+            families = [row["family"] for row in conn.execute("SELECT DISTINCT family FROM fragrances WHERE is_active = 1 ORDER BY family")]
             collections = [
                 row["collection_type"]
-                for row in conn.execute("SELECT DISTINCT collection_type FROM fragrances ORDER BY collection_type")
+                for row in conn.execute("SELECT DISTINCT collection_type FROM fragrances WHERE is_active = 1 ORDER BY collection_type")
             ]
-            sale_types = [row["sale_type"] for row in conn.execute("SELECT DISTINCT sale_type FROM variants ORDER BY sale_type")]
+            sale_types = [
+                row["sale_type"]
+                for row in conn.execute(
+                    """
+                    SELECT DISTINCT v.sale_type
+                    FROM variants v
+                    JOIN fragrances f ON f.id = v.fragrance_id
+                    WHERE f.is_active = 1
+                    ORDER BY v.sale_type
+                    """
+                )
+            ]
 
         return {
             "brands": brands,
@@ -916,6 +943,32 @@ class Database:
             "genders": ["him", "her", "unisex"],
         }
 
+    def list_brand_groups(self) -> dict[str, list[dict[str, Any]]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT collection_type, brand, COUNT(*) AS count
+                  FROM fragrances
+                 WHERE is_active = 1
+                 GROUP BY collection_type, brand
+                 ORDER BY collection_type, brand
+                """
+            ).fetchall()
+
+        groups: dict[str, list[dict[str, Any]]] = {"designer": [], "niche": []}
+        for row in rows:
+            collection = row["collection_type"] or "niche"
+            if collection not in groups:
+                groups[collection] = []
+            groups[collection].append(
+                {
+                    "name": row["brand"],
+                    "href": f"/catalog?brand={quote(str(row['brand']))}",
+                    "count": row["count"],
+                }
+            )
+        return groups
+
     def list_fragrances(
         self,
         filters: dict[str, str] | None = None,
@@ -923,14 +976,20 @@ class Database:
         limit: int | None = None,
         offset: int = 0,
         featured_only: bool = False,
+        include_inactive: bool = False,
     ) -> list[dict[str, Any]]:
-        clauses, params = self._fragrance_filter_clauses(filters, featured_only=featured_only)
+        clauses, params = self._fragrance_filter_clauses(
+            filters,
+            featured_only=featured_only,
+            include_inactive=include_inactive,
+        )
 
+        order_by = self._fragrance_order_by((filters or {}).get("sort", ""))
         query = f"""
             SELECT *
             FROM fragrances
             WHERE {' AND '.join(clauses)}
-            ORDER BY featured DESC, rank ASC, brand ASC, name ASC
+            ORDER BY {order_by}
         """
 
         if limit:
@@ -947,8 +1006,50 @@ class Database:
 
         return [self._serialize_fragrance(row, variants_by_fragrance.get(row["id"], [])) for row in fragrance_rows]
 
-    def count_fragrances(self, filters: dict[str, str] | None = None, *, featured_only: bool = False) -> int:
-        clauses, params = self._fragrance_filter_clauses(filters, featured_only=featured_only)
+    def _fragrance_order_by(self, sort: str) -> str:
+        min_price = """
+            COALESCE((
+                SELECT MIN(v.price_inr)
+                FROM variants v
+                WHERE v.fragrance_id = fragrances.id
+                  AND v.stock_units > 0
+            ), 0)
+        """
+        max_discount = """
+            COALESCE((
+                SELECT MAX(
+                    CASE
+                        WHEN v.compare_at_price_inr > v.price_inr
+                        THEN v.compare_at_price_inr - v.price_inr
+                        ELSE 0
+                    END
+                )
+                FROM variants v
+                WHERE v.fragrance_id = fragrances.id
+                  AND v.stock_units > 0
+            ), 0)
+        """
+
+        if sort == "price_low":
+            return f"{min_price} ASC, featured DESC, rank ASC, brand ASC, name ASC"
+        if sort == "price_high":
+            return f"{min_price} DESC, featured DESC, rank ASC, brand ASC, name ASC"
+        if sort == "discount_high":
+            return f"{max_discount} DESC, featured DESC, rank ASC, brand ASC, name ASC"
+        return "featured DESC, rank ASC, brand ASC, name ASC"
+
+    def count_fragrances(
+        self,
+        filters: dict[str, str] | None = None,
+        *,
+        featured_only: bool = False,
+        include_inactive: bool = False,
+    ) -> int:
+        clauses, params = self._fragrance_filter_clauses(
+            filters,
+            featured_only=featured_only,
+            include_inactive=include_inactive,
+        )
         with self.connect() as conn:
             row = conn.execute(
                 f"SELECT COUNT(*) AS count FROM fragrances WHERE {' AND '.join(clauses)}",
@@ -961,10 +1062,14 @@ class Database:
         filters: dict[str, str] | None = None,
         *,
         featured_only: bool = False,
+        include_inactive: bool = False,
     ) -> tuple[list[str], list[Any]]:
         filters = {key: value for key, value in (filters or {}).items() if value}
         clauses = ["1 = 1"]
         params: list[Any] = []
+
+        if not include_inactive:
+            clauses.append("is_active = 1")
 
         if featured_only:
             clauses.append("featured = 1")
@@ -1081,7 +1186,7 @@ class Database:
             seen.add(key)
 
         with self.connect() as conn:
-            rows = conn.execute("SELECT DISTINCT brand, name FROM fragrances").fetchall()
+            rows = conn.execute("SELECT DISTINCT brand, name FROM fragrances WHERE is_active = 1").fetchall()
 
         name_token_counts: dict[str, int] = {}
         for row in rows:
@@ -1165,12 +1270,543 @@ class Database:
         score = SequenceMatcher(None, query, candidate).ratio()
         return score if score >= threshold else 0.0
 
+    def get_admin_summary(self) -> dict[str, int]:
+        self.expire_stale_reservations()
+        with self.connect() as conn:
+            active = conn.execute("SELECT COUNT(*) AS count FROM fragrances WHERE is_active = 1").fetchone()["count"]
+            archived = conn.execute("SELECT COUNT(*) AS count FROM fragrances WHERE is_active = 0").fetchone()["count"]
+            variants = conn.execute("SELECT COUNT(*) AS count FROM variants").fetchone()["count"]
+            stock = conn.execute("SELECT COALESCE(SUM(stock_units), 0) AS count FROM variants").fetchone()["count"]
+            low_stock = conn.execute(
+                "SELECT COUNT(*) AS count FROM variants WHERE stock_units > 0 AND stock_units <= 2"
+            ).fetchone()["count"]
+            out_of_stock = conn.execute("SELECT COUNT(*) AS count FROM variants WHERE stock_units <= 0").fetchone()["count"]
+            open_orders = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM orders
+                WHERE status NOT IN ('Delivered', 'Cancelled', 'Payment Expired', 'Payment Failed')
+                """
+            ).fetchone()["count"]
+        return {
+            "active_fragrances": int(active or 0),
+            "archived_fragrances": int(archived or 0),
+            "variants": int(variants or 0),
+            "stock_units": int(stock or 0),
+            "low_stock_variants": int(low_stock or 0),
+            "out_of_stock_variants": int(out_of_stock or 0),
+            "open_orders": int(open_orders or 0),
+        }
+
+    def list_admin_fragrances(
+        self,
+        *,
+        search: str = "",
+        status: str = "active",
+        limit: int = 160,
+    ) -> list[dict[str, Any]]:
+        clauses = ["1 = 1"]
+        params: list[Any] = []
+        clean_search = " ".join(str(search or "").strip().split())
+        if clean_search:
+            like = f"%{clean_search.lower()}%"
+            clauses.append(
+                "(LOWER(f.brand) LIKE ? OR LOWER(f.name) LIKE ? OR LOWER(f.slug) LIKE ? OR LOWER(f.family) LIKE ?)"
+            )
+            params.extend([like, like, like, like])
+
+        if status == "active":
+            clauses.append("f.is_active = 1")
+        elif status == "archived":
+            clauses.append("f.is_active = 0")
+
+        params.append(limit)
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    f.id,
+                    f.slug,
+                    f.brand,
+                    f.name,
+                    f.collection_type,
+                    f.gender,
+                    f.family,
+                    f.concentration,
+                    f.featured,
+                    f.rank,
+                    f.is_active,
+                    COALESCE(vs.variant_count, 0) AS variant_count,
+                    COALESCE(vs.total_stock, 0) AS total_stock,
+                    COALESCE(vs.low_stock_count, 0) AS low_stock_count,
+                    COALESCE(vs.min_price, 0) AS min_price,
+                    COALESCE(vs.max_price, 0) AS max_price
+                FROM fragrances f
+                LEFT JOIN (
+                    SELECT
+                        fragrance_id,
+                        COUNT(*) AS variant_count,
+                        SUM(stock_units) AS total_stock,
+                        SUM(CASE WHEN stock_units > 0 AND stock_units <= 2 THEN 1 ELSE 0 END) AS low_stock_count,
+                        MIN(price_inr) AS min_price,
+                        MAX(price_inr) AS max_price
+                    FROM variants
+                    GROUP BY fragrance_id
+                ) vs ON vs.fragrance_id = f.id
+                WHERE {' AND '.join(clauses)}
+                ORDER BY f.is_active DESC, f.brand ASC, f.name ASC
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_admin_fragrance(self, slug: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM fragrances WHERE slug = ?", (slug,)).fetchone()
+            if row is None:
+                return None
+            variants = self._variants_by_fragrance(conn, [row["id"]]).get(row["id"], [])
+        return self._serialize_admin_fragrance(row, variants)
+
+    def save_admin_fragrance(
+        self,
+        fields: dict[str, str],
+        *,
+        current_slug: str | None = None,
+    ) -> dict[str, Any]:
+        fragrance = self._normalize_admin_fragrance_fields(fields, current_slug=current_slug)
+        now_slug = current_slug or ""
+
+        with self.connect() as conn:
+            try:
+                conn.begin_write()
+                conflict = conn.execute(
+                    "SELECT slug FROM fragrances WHERE slug = ? AND (? = '' OR slug != ?)",
+                    (fragrance["slug"], now_slug, now_slug),
+                ).fetchone()
+                if conflict:
+                    raise ValidationError("Another fragrance already uses this slug.")
+
+                if current_slug:
+                    existing = conn.execute("SELECT id FROM fragrances WHERE slug = ?", (current_slug,)).fetchone()
+                    if existing is None:
+                        raise ValidationError("Fragrance not found.")
+                    conn.execute(
+                        """
+                        UPDATE fragrances
+                        SET slug = ?,
+                            brand = ?,
+                            name = ?,
+                            collection_type = ?,
+                            gender = ?,
+                            family = ?,
+                            concentration = ?,
+                            origin = ?,
+                            description = ?,
+                            signature = ?,
+                            top_notes = ?,
+                            heart_notes = ?,
+                            base_notes = ?,
+                            accent_from = ?,
+                            accent_to = ?,
+                            image_url = ?,
+                            photo_icon_url = ?,
+                            artwork_kind = ?,
+                            bottle_size_ml = ?,
+                            featured = ?,
+                            rank = ?,
+                            is_active = ?
+                        WHERE slug = ?
+                        """,
+                        (
+                            fragrance["slug"],
+                            fragrance["brand"],
+                            fragrance["name"],
+                            fragrance["collection_type"],
+                            fragrance["gender"],
+                            fragrance["family"],
+                            fragrance["concentration"],
+                            fragrance["origin"],
+                            fragrance["description"],
+                            fragrance["signature"],
+                            json.dumps(fragrance["top_notes"]),
+                            json.dumps(fragrance["heart_notes"]),
+                            json.dumps(fragrance["base_notes"]),
+                            fragrance["accent_from"],
+                            fragrance["accent_to"],
+                            fragrance["image_url"],
+                            fragrance["photo_icon_url"],
+                            fragrance["artwork_kind"],
+                            fragrance["bottle_size_ml"],
+                            1 if fragrance["featured"] else 0,
+                            fragrance["rank"],
+                            1 if fragrance["is_active"] else 0,
+                            current_slug,
+                        ),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        INSERT INTO fragrances (
+                            slug, brand, name, collection_type, gender, family, concentration,
+                            origin, description, signature, top_notes, heart_notes, base_notes,
+                            accent_from, accent_to, image_url, photo_icon_url, artwork_kind,
+                            bottle_size_ml, featured, rank, is_active
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            fragrance["slug"],
+                            fragrance["brand"],
+                            fragrance["name"],
+                            fragrance["collection_type"],
+                            fragrance["gender"],
+                            fragrance["family"],
+                            fragrance["concentration"],
+                            fragrance["origin"],
+                            fragrance["description"],
+                            fragrance["signature"],
+                            json.dumps(fragrance["top_notes"]),
+                            json.dumps(fragrance["heart_notes"]),
+                            json.dumps(fragrance["base_notes"]),
+                            fragrance["accent_from"],
+                            fragrance["accent_to"],
+                            fragrance["image_url"],
+                            fragrance["photo_icon_url"],
+                            fragrance["artwork_kind"],
+                            fragrance["bottle_size_ml"],
+                            1 if fragrance["featured"] else 0,
+                            fragrance["rank"],
+                            1 if fragrance["is_active"] else 0,
+                        ),
+                    )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+        self._search_vocabulary = None
+        saved = self.get_admin_fragrance(fragrance["slug"])
+        if saved is None:
+            raise ValidationError("Fragrance could not be loaded after save.")
+        return saved
+
+    def save_admin_variant(self, fragrance_slug: str, fields: dict[str, str]) -> dict[str, Any]:
+        variant = self._normalize_admin_variant_fields(fragrance_slug, fields)
+        variant_id = int(str(fields.get("variant_id", "") or "0") or 0)
+
+        with self.connect() as conn:
+            try:
+                conn.begin_write()
+                fragrance_row = conn.execute(
+                    "SELECT id FROM fragrances WHERE slug = ?",
+                    (fragrance_slug,),
+                ).fetchone()
+                if fragrance_row is None:
+                    raise ValidationError("Fragrance not found.")
+
+                conflict = conn.execute(
+                    "SELECT id FROM variants WHERE sku = ? AND (? = 0 OR id != ?)",
+                    (variant["sku"], variant_id, variant_id),
+                ).fetchone()
+                if conflict:
+                    raise ValidationError("Another variant already uses this SKU.")
+
+                if variant_id:
+                    existing = conn.execute(
+                        "SELECT id FROM variants WHERE id = ? AND fragrance_id = ?",
+                        (variant_id, fragrance_row["id"]),
+                    ).fetchone()
+                    if existing is None:
+                        raise ValidationError("Variant not found.")
+                    conn.execute(
+                        """
+                        UPDATE variants
+                        SET sku = ?,
+                            sale_type = ?,
+                            size_label = ?,
+                            size_ml = ?,
+                            price_inr = ?,
+                            compare_at_price_inr = ?,
+                            stock_units = ?,
+                            badge = ?,
+                            statement = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            variant["sku"],
+                            variant["sale_type"],
+                            variant["size_label"],
+                            variant["size_ml"],
+                            variant["price_inr"],
+                            variant["compare_at_price_inr"],
+                            variant["stock_units"],
+                            variant["badge"],
+                            variant["statement"],
+                            variant_id,
+                        ),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        INSERT INTO variants (
+                            fragrance_id, sku, sale_type, size_label, size_ml, price_inr,
+                            compare_at_price_inr, stock_units, badge, statement
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            fragrance_row["id"],
+                            variant["sku"],
+                            variant["sale_type"],
+                            variant["size_label"],
+                            variant["size_ml"],
+                            variant["price_inr"],
+                            variant["compare_at_price_inr"],
+                            variant["stock_units"],
+                            variant["badge"],
+                            variant["statement"],
+                        ),
+                    )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+        saved = self.get_admin_fragrance(fragrance_slug)
+        if saved is None:
+            raise ValidationError("Fragrance could not be loaded after variant save.")
+        return saved
+
+    def delete_admin_variant(self, fragrance_slug: str, variant_id: int) -> str:
+        with self.connect() as conn:
+            try:
+                conn.begin_write()
+                row = conn.execute(
+                    """
+                    SELECT v.id, v.fragrance_id, f.slug
+                    FROM variants v
+                    JOIN fragrances f ON f.id = v.fragrance_id
+                    WHERE v.id = ? AND f.slug = ?
+                    """,
+                    (variant_id, fragrance_slug),
+                ).fetchone()
+                if row is None:
+                    raise ValidationError("Variant not found.")
+                order_count = conn.execute(
+                    "SELECT COUNT(*) AS count FROM order_items WHERE variant_id = ?",
+                    (variant_id,),
+                ).fetchone()["count"]
+                if int(order_count or 0):
+                    conn.execute(
+                        """
+                        UPDATE variants
+                        SET stock_units = 0,
+                            badge = 'Unavailable',
+                            statement = 'Retained for order history.'
+                        WHERE id = ?
+                        """,
+                        (variant_id,),
+                    )
+                else:
+                    conn.execute("DELETE FROM variants WHERE id = ?", (variant_id,))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return fragrance_slug
+
+    def set_admin_fragrance_active(self, slug: str, is_active: bool) -> None:
+        with self.connect() as conn:
+            cursor = conn.execute(
+                "UPDATE fragrances SET is_active = ? WHERE slug = ?",
+                (1 if is_active else 0, slug),
+            )
+            if getattr(cursor, "rowcount", 1) == 0:
+                raise ValidationError("Fragrance not found.")
+            conn.commit()
+        self._search_vocabulary = None
+
+    def delete_admin_fragrance(self, slug: str) -> str:
+        with self.connect() as conn:
+            try:
+                conn.begin_write()
+                row = conn.execute("SELECT id FROM fragrances WHERE slug = ?", (slug,)).fetchone()
+                if row is None:
+                    raise ValidationError("Fragrance not found.")
+                order_count = conn.execute(
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM order_items
+                    WHERE fragrance_slug = ?
+                       OR variant_id IN (SELECT id FROM variants WHERE fragrance_id = ?)
+                    """,
+                    (slug, row["id"]),
+                ).fetchone()["count"]
+                if int(order_count or 0):
+                    conn.execute("UPDATE fragrances SET is_active = 0 WHERE id = ?", (row["id"],))
+                    result = "archived"
+                else:
+                    conn.execute("DELETE FROM variants WHERE fragrance_id = ?", (row["id"],))
+                    conn.execute("DELETE FROM fragrances WHERE id = ?", (row["id"],))
+                    result = "deleted"
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        self._search_vocabulary = None
+        return result
+
+    def _serialize_admin_fragrance(self, row: Any, variants: list[dict[str, Any]]) -> dict[str, Any]:
+        fragrance = dict(row)
+        fragrance["top_notes"] = self._safe_note_list(fragrance["top_notes"])
+        fragrance["heart_notes"] = self._safe_note_list(fragrance["heart_notes"])
+        fragrance["base_notes"] = self._safe_note_list(fragrance["base_notes"])
+        fragrance["featured"] = bool(fragrance["featured"])
+        fragrance["is_active"] = bool(fragrance["is_active"])
+        fragrance["variants"] = variants
+        fragrance["variant_count"] = len(variants)
+        fragrance["total_stock"] = sum(int(variant["stock_units"] or 0) for variant in variants)
+        prices = [int(variant["price_inr"] or 0) for variant in variants]
+        fragrance["min_price"] = min(prices, default=0)
+        fragrance["max_price"] = max(prices, default=0)
+        return fragrance
+
+    def _normalize_admin_fragrance_fields(
+        self,
+        fields: dict[str, str],
+        *,
+        current_slug: str | None,
+    ) -> dict[str, Any]:
+        brand = self._clean_required(fields.get("brand"), "Brand")
+        name = self._clean_required(fields.get("name"), "Fragrance name")
+        clean_slug = slugify(fields.get("slug") or f"{brand}-{name}")
+        if not clean_slug:
+            clean_slug = slugify(f"{brand}-{name}")
+
+        collection_type = self._clean_choice(
+            fields.get("collection_type"),
+            {"niche", "designer"},
+            "Collection",
+            default="niche",
+        )
+        gender = self._clean_choice(fields.get("gender"), {"him", "her", "unisex"}, "Gender", default="unisex")
+        family = self._clean_required(fields.get("family"), "Family").lower()
+        concentration = self._clean_text(fields.get("concentration")) or "Eau de Parfum"
+        origin = self._clean_text(fields.get("origin")) or "Imported"
+        signature = self._clean_text(fields.get("signature")) or "Curated for The Scentist."
+        top_notes = self._parse_admin_note_list(fields.get("top_notes"))
+        heart_notes = self._parse_admin_note_list(fields.get("heart_notes"))
+        base_notes = self._parse_admin_note_list(fields.get("base_notes"))
+        description = self._clean_text(fields.get("description"))
+        if not description:
+            all_notes = [*top_notes, *heart_notes, *base_notes]
+            note_text = ", ".join(all_notes[:4]) if all_notes else family
+            description = f"{brand} {name} is a curated {family} fragrance with {note_text}."
+
+        return {
+            "slug": clean_slug,
+            "brand": brand,
+            "name": name,
+            "collection_type": collection_type,
+            "gender": gender,
+            "family": family,
+            "concentration": concentration,
+            "origin": origin,
+            "description": description,
+            "signature": signature,
+            "top_notes": top_notes,
+            "heart_notes": heart_notes,
+            "base_notes": base_notes,
+            "accent_from": self._clean_text(fields.get("accent_from")) or "#c2b4a3",
+            "accent_to": self._clean_text(fields.get("accent_to")) or "#17120f",
+            "image_url": self._clean_text(fields.get("image_url")) or f"/artwork/{clean_slug}.svg",
+            "photo_icon_url": self._clean_text(fields.get("photo_icon_url")),
+            "artwork_kind": self._clean_text(fields.get("artwork_kind")) or "photo",
+            "bottle_size_ml": self._clean_non_negative_int(fields.get("bottle_size_ml"), "Bottle size", default=100),
+            "featured": fields.get("featured") == "on",
+            "rank": self._clean_non_negative_int(fields.get("rank"), "Rank", default=999),
+            "is_active": fields.get("is_active") == "on" or not current_slug,
+        }
+
+    def _normalize_admin_variant_fields(self, fragrance_slug: str, fields: dict[str, str]) -> dict[str, Any]:
+        sale_type = self._clean_choice(
+            fields.get("sale_type"),
+            {"retail", "tester", "decant", "partial"},
+            "Sale type",
+            default="retail",
+        )
+        size_ml = self._clean_non_negative_int(fields.get("size_ml"), "Size ml", default=100)
+        if size_ml <= 0:
+            raise ValidationError("Size ml must be greater than zero.")
+        size_label = self._clean_text(fields.get("size_label")) or f"{size_ml} ml"
+        sku = slugify(fields.get("sku") or f"{fragrance_slug}-{sale_type}-{size_ml}")
+        if not sku:
+            raise ValidationError("SKU is required.")
+        price = self._clean_non_negative_int(fields.get("price_inr"), "Price", default=0)
+        if price <= 0:
+            raise ValidationError("Price must be greater than zero.")
+        compare_at = self._clean_non_negative_int(fields.get("compare_at_price_inr"), "Compare at price", default=0)
+        stock = self._clean_non_negative_int(fields.get("stock_units"), "Stock", default=0)
+        return {
+            "sku": sku,
+            "sale_type": sale_type,
+            "size_label": size_label,
+            "size_ml": size_ml,
+            "price_inr": price,
+            "compare_at_price_inr": compare_at,
+            "stock_units": stock,
+            "badge": self._clean_text(fields.get("badge")),
+            "statement": self._clean_text(fields.get("statement")),
+        }
+
+    def _clean_text(self, value: Any) -> str:
+        return re.sub(r"\s+", " ", str(value or "")).strip()
+
+    def _clean_required(self, value: Any, label: str) -> str:
+        text = self._clean_text(value)
+        if not text:
+            raise ValidationError(f"{label} is required.")
+        return text
+
+    def _clean_choice(self, value: Any, choices: set[str], label: str, *, default: str) -> str:
+        text = self._clean_text(value).lower() or default
+        if text not in choices:
+            raise ValidationError(f"{label} is invalid.")
+        return text
+
+    def _clean_non_negative_int(self, value: Any, label: str, *, default: int) -> int:
+        text = self._clean_text(value)
+        if not text:
+            return default
+        try:
+            number = int(float(text))
+        except ValueError as exc:
+            raise ValidationError(f"{label} must be a number.") from exc
+        if number < 0:
+            raise ValidationError(f"{label} cannot be negative.")
+        return number
+
+    def _parse_admin_note_list(self, value: Any) -> list[str]:
+        raw_parts = re.split(r"[\n,]+", str(value or ""))
+        notes = []
+        seen = set()
+        for part in raw_parts:
+            note = self._clean_text(part)
+            key = note.lower()
+            if note and key not in seen:
+                notes.append(note)
+                seen.add(key)
+        return notes
+
     def get_featured(self, limit: int = 8) -> list[dict[str, Any]]:
         return self.list_fragrances(limit=limit, featured_only=True)
 
     def get_fragrance(self, slug: str) -> dict[str, Any] | None:
         with self.connect() as conn:
-            row = conn.execute("SELECT * FROM fragrances WHERE slug = ?", (slug,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM fragrances WHERE slug = ? AND is_active = 1",
+                (slug,),
+            ).fetchone()
             if row is None:
                 return None
             variants = self._variants_by_fragrance(conn, [row["id"]]).get(row["id"], [])
@@ -1183,6 +1819,7 @@ class Database:
                 SELECT *
                 FROM fragrances
                 WHERE slug != ?
+                  AND is_active = 1
                   AND (brand = ? OR gender = ? OR family = ?)
                 ORDER BY featured DESC, rank ASC
                 LIMIT ?
@@ -1201,8 +1838,8 @@ class Database:
 
     def get_metrics(self) -> dict[str, int]:
         with self.connect() as conn:
-            fragrances = conn.execute("SELECT COUNT(*) AS count FROM fragrances").fetchone()["count"]
-            brands = conn.execute("SELECT COUNT(DISTINCT brand) AS count FROM fragrances").fetchone()["count"]
+            fragrances = conn.execute("SELECT COUNT(*) AS count FROM fragrances WHERE is_active = 1").fetchone()["count"]
+            brands = conn.execute("SELECT COUNT(DISTINCT brand) AS count FROM fragrances WHERE is_active = 1").fetchone()["count"]
             variants = conn.execute("SELECT COUNT(*) AS count FROM variants").fetchone()["count"]
             orders = conn.execute("SELECT COUNT(*) AS count FROM orders").fetchone()["count"]
         return {
@@ -1218,6 +1855,7 @@ class Database:
                 """
                 SELECT brand, collection_type, COUNT(*) AS fragrance_count
                 FROM fragrances
+                WHERE is_active = 1
                 GROUP BY brand, collection_type
                 ORDER BY collection_type ASC, fragrance_count DESC, brand ASC
                 LIMIT ?
@@ -1276,7 +1914,7 @@ class Database:
                         v.badge AS variant_badge
                     FROM fragrances f
                     JOIN variants v ON v.fragrance_id = f.id
-                    WHERE {' AND '.join(clauses)}
+                    WHERE f.is_active = 1 AND {' AND '.join(clauses)}
                     ORDER BY f.featured DESC, f.rank ASC, f.brand ASC, f.name ASC, v.price_inr ASC
                     LIMIT ?
                     """,
@@ -1376,6 +2014,7 @@ class Database:
                 FROM variants v
                 JOIN fragrances f ON f.id = v.fragrance_id
                 WHERE v.id IN ({placeholders})
+                  AND f.is_active = 1
                 ORDER BY f.rank ASC, v.price_inr ASC
                 """,
                 variant_ids,
@@ -1823,6 +2462,7 @@ class Database:
                     FROM variants v
                     JOIN fragrances f ON f.id = v.fragrance_id
                     WHERE v.id = ?
+                      AND f.is_active = 1
                     """,
                     (variant_id,),
                 ).fetchone()
@@ -2045,7 +2685,10 @@ class Database:
         heart_notes = self._safe_note_list(row["heart_notes"])
         base_notes = self._safe_note_list(row["base_notes"])
         available_variants = [variant for variant in variants if variant["stock_units"] > 0]
-        starting_price = min((variant["price_inr"] for variant in available_variants), default=0)
+        available_prices = [int(variant["price_inr"]) for variant in available_variants]
+        starting_price = min(available_prices, default=0)
+        ending_price = max(available_prices, default=0)
+        has_price_range = bool(available_prices) and starting_price != ending_price
         quick_add = next(
             (
                 variant
@@ -2078,8 +2721,11 @@ class Database:
             "artwork_kind": row["artwork_kind"],
             "bottle_size_ml": row["bottle_size_ml"],
             "featured": bool(row["featured"]),
+            "is_active": bool(row["is_active"]),
             "variants": available_variants,
             "starting_price": starting_price,
+            "ending_price": ending_price,
+            "has_price_range": has_price_range,
             "quick_add_variant": quick_add,
             "sale_types": sorted({variant["sale_type"] for variant in available_variants}),
         }

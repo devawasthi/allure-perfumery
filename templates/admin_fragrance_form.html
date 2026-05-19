@@ -1,0 +1,303 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="utility-hero">
+    <p class="section-kicker">Admin Inventory</p>
+    <h1>{% if mode == "new" %}Add fragrance{% else %}Edit fragrance{% endif %}</h1>
+    <p>{% if mode == "new" %}Create a storefront-ready fragrance with image, notes, pricing, and stock.{% else %}Update product content, visibility, and inventory without touching the database manually.{% endif %}</p>
+  </section>
+
+  <section class="admin-toolbar">
+    <a class="button button--ghost" href="/admin/fragrances">Back to inventory</a>
+    <a class="button button--ghost" href="/admin">Dashboard</a>
+    {% if fragrance and fragrance.is_active %}
+      <a class="button button--ghost" href="/fragrances/{{ fragrance.slug }}">View product</a>
+    {% endif %}
+  </section>
+
+  <section class="order-card order-card--full">
+    <div class="admin-section-head">
+      <div>
+        <p class="section-kicker">Product record</p>
+        <h2>{{ form.brand or "New house" }} {{ form.name }}</h2>
+      </div>
+      {% if fragrance %}
+        <span class="admin-status {% if fragrance.is_active %}is-live{% else %}is-archived{% endif %}">
+          {% if fragrance.is_active %}Live{% else %}Archived{% endif %}
+        </span>
+      {% endif %}
+    </div>
+
+    {% if error %}
+      <p class="checkout-form__status is-error">{{ error }}</p>
+    {% endif %}
+
+    <form class="checkout-form admin-product-form" action="{% if mode == 'new' %}/admin/fragrances{% else %}/admin/fragrances/{{ fragrance.slug }}/save{% endif %}" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+
+      <div class="checkout-form__grid">
+        <label>
+          Brand
+          <input name="brand" value="{{ form.brand }}" required />
+        </label>
+        <label>
+          Fragrance name
+          <input name="name" value="{{ form.name }}" required />
+        </label>
+        <label>
+          Slug
+          <input name="slug" value="{{ form.slug }}" placeholder="auto-generated if blank" />
+        </label>
+        <label>
+          Collection
+          <select name="collection_type">
+            <option value="niche" {% if form.collection_type == "niche" %}selected{% endif %}>Niche</option>
+            <option value="designer" {% if form.collection_type == "designer" %}selected{% endif %}>Designer</option>
+          </select>
+        </label>
+        <label>
+          Gender
+          <select name="gender">
+            <option value="unisex" {% if form.gender == "unisex" %}selected{% endif %}>Unisex</option>
+            <option value="him" {% if form.gender == "him" %}selected{% endif %}>Him</option>
+            <option value="her" {% if form.gender == "her" %}selected{% endif %}>Her</option>
+          </select>
+        </label>
+        <label>
+          Family
+          <input name="family" value="{{ form.family }}" placeholder="woody amber" required />
+        </label>
+        <label>
+          Concentration
+          <input name="concentration" value="{{ form.concentration }}" />
+        </label>
+        <label>
+          Origin
+          <input name="origin" value="{{ form.origin }}" />
+        </label>
+        <label>
+          Bottle size ml
+          <input type="number" min="1" name="bottle_size_ml" value="{{ form.bottle_size_ml }}" />
+        </label>
+        <label>
+          Rank
+          <input type="number" min="0" name="rank" value="{{ form.rank }}" />
+        </label>
+      </div>
+
+      <label>
+        Signature
+        <input name="signature" value="{{ form.signature }}" placeholder="Short editorial line" />
+      </label>
+      <label>
+        Description
+        <textarea name="description" rows="4">{{ form.description }}</textarea>
+      </label>
+
+      <div class="checkout-form__grid">
+        <label>
+          Top notes
+          <textarea name="top_notes" rows="3" placeholder="Comma separated">{{ form.top_notes }}</textarea>
+        </label>
+        <label>
+          Middle notes
+          <textarea name="heart_notes" rows="3" placeholder="Comma separated">{{ form.heart_notes }}</textarea>
+        </label>
+        <label>
+          Base notes
+          <textarea name="base_notes" rows="3" placeholder="Comma separated">{{ form.base_notes }}</textarea>
+        </label>
+      </div>
+
+      <div class="checkout-form__grid">
+        <label>
+          Image URL
+          <input name="image_url" value="{{ form.image_url }}" placeholder="/assets/example.png or https://..." />
+        </label>
+        <label>
+          Icon image URL
+          <input name="photo_icon_url" value="{{ form.photo_icon_url }}" />
+        </label>
+        <label>
+          Artwork kind
+          <select name="artwork_kind">
+            <option value="photo" {% if form.artwork_kind == "photo" %}selected{% endif %}>Photo</option>
+            <option value="generated" {% if form.artwork_kind == "generated" %}selected{% endif %}>Generated</option>
+          </select>
+        </label>
+        <label>
+          Accent from
+          <input name="accent_from" value="{{ form.accent_from }}" />
+        </label>
+        <label>
+          Accent to
+          <input name="accent_to" value="{{ form.accent_to }}" />
+        </label>
+      </div>
+
+      <div class="admin-checkbox-row">
+        <label>
+          <input type="checkbox" name="featured" {% if form.featured %}checked{% endif %} />
+          Featured
+        </label>
+        <label>
+          <input type="checkbox" name="is_active" {% if form.is_active %}checked{% endif %} />
+          Visible on storefront
+        </label>
+      </div>
+
+      <div class="checkout-form__actions">
+        <button class="button" type="submit">{% if mode == "new" %}Create fragrance{% else %}Save fragrance{% endif %}</button>
+      </div>
+    </form>
+  </section>
+
+  {% if fragrance %}
+    <section class="admin-danger-row">
+      {% if fragrance.is_active %}
+        <form action="/admin/fragrances/{{ fragrance.slug }}/archive" method="post">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <button class="button button--ghost" type="submit">Archive from store</button>
+        </form>
+      {% else %}
+        <form action="/admin/fragrances/{{ fragrance.slug }}/restore" method="post">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <button class="button" type="submit">Restore to store</button>
+        </form>
+      {% endif %}
+      <form action="/admin/fragrances/{{ fragrance.slug }}/delete" method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        <button class="button button--ghost admin-danger-button" type="submit">Delete if safe</button>
+      </form>
+    </section>
+
+    <section id="variants" class="order-card order-card--full">
+      <div class="admin-section-head">
+        <div>
+          <p class="section-kicker">Inventory variants</p>
+          <h2>{{ fragrance.variant_count }} buying options</h2>
+        </div>
+        <strong>{{ fragrance.total_stock }} units in stock</strong>
+      </div>
+
+      {% if variant_error %}
+        <p class="checkout-form__status is-error">{{ variant_error }}</p>
+      {% endif %}
+
+      <div class="admin-variant-list">
+        {% for variant in fragrance.variants %}
+          <article class="admin-variant-card">
+            <form class="checkout-form admin-variant-form" action="/admin/fragrances/{{ fragrance.slug }}/variants" method="post">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+              <input type="hidden" name="variant_id" value="{{ variant.id }}" />
+              <div class="checkout-form__grid">
+                <label>
+                  SKU
+                  <input name="sku" value="{{ variant.sku }}" required />
+                </label>
+                <label>
+                  Type
+                  <select name="sale_type">
+                    {% for option in ["retail", "tester", "decant", "partial"] %}
+                      <option value="{{ option }}" {% if variant.sale_type == option %}selected{% endif %}>{{ option|title }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <label>
+                  Size label
+                  <input name="size_label" value="{{ variant.size_label }}" required />
+                </label>
+                <label>
+                  Size ml
+                  <input type="number" min="1" name="size_ml" value="{{ variant.size_ml }}" />
+                </label>
+                <label>
+                  Price INR
+                  <input type="number" min="1" name="price_inr" value="{{ variant.price_inr }}" />
+                </label>
+                <label>
+                  Compare at
+                  <input type="number" min="0" name="compare_at_price_inr" value="{{ variant.compare_at_price_inr }}" />
+                </label>
+                <label>
+                  Stock
+                  <input type="number" min="0" name="stock_units" value="{{ variant.stock_units }}" />
+                </label>
+                <label>
+                  Badge
+                  <input name="badge" value="{{ variant.badge }}" />
+                </label>
+              </div>
+              <label>
+                Statement
+                <input name="statement" value="{{ variant.statement }}" />
+              </label>
+              <div class="checkout-form__actions">
+                <button class="button button--ghost" type="submit">Save option</button>
+                <button
+                  class="button button--ghost admin-danger-button"
+                  type="submit"
+                  formaction="/admin/fragrances/{{ fragrance.slug }}/variants/{{ variant.id }}/delete"
+                >
+                  Remove option
+                </button>
+              </div>
+            </form>
+          </article>
+        {% else %}
+          <p class="checkout-form__status">No buying options yet. Add the first one below.</p>
+        {% endfor %}
+      </div>
+
+      <article class="admin-variant-card admin-variant-card--new">
+        <p class="section-kicker">Add buying option</p>
+        <form class="checkout-form admin-variant-form" action="/admin/fragrances/{{ fragrance.slug }}/variants" method="post">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <div class="checkout-form__grid">
+            <label>
+              SKU
+              <input name="sku" value="{{ variant_form.sku }}" placeholder="auto-generated if blank" />
+            </label>
+            <label>
+              Type
+              <select name="sale_type">
+                {% for option in ["retail", "tester", "decant", "partial"] %}
+                  <option value="{{ option }}" {% if variant_form.sale_type == option %}selected{% endif %}>{{ option|title }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              Size label
+              <input name="size_label" value="{{ variant_form.size_label }}" placeholder="100 ml retail" />
+            </label>
+            <label>
+              Size ml
+              <input type="number" min="1" name="size_ml" value="{{ variant_form.size_ml }}" />
+            </label>
+            <label>
+              Price INR
+              <input type="number" min="1" name="price_inr" value="{{ variant_form.price_inr }}" required />
+            </label>
+            <label>
+              Compare at
+              <input type="number" min="0" name="compare_at_price_inr" value="{{ variant_form.compare_at_price_inr }}" />
+            </label>
+            <label>
+              Stock
+              <input type="number" min="0" name="stock_units" value="{{ variant_form.stock_units }}" />
+            </label>
+            <label>
+              Badge
+              <input name="badge" value="{{ variant_form.badge }}" />
+            </label>
+          </div>
+          <label>
+            Statement
+            <input name="statement" value="{{ variant_form.statement }}" />
+          </label>
+          <button class="button" type="submit">Add option</button>
+        </form>
+      </article>
+    </section>
+  {% endif %}
+{% endblock %}

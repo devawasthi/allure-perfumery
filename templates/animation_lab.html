@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="animation-lab" aria-labelledby="animation-lab-title" data-animation-lab>
+    <div class="animation-lab__copy">
+      <p class="section-kicker">Animation Study</p>
+      <h1 id="animation-lab-title">A cinematic reveal for fragrance discovery.</h1>
+      <p>
+        A campaign film opens full scale, then settles into the center as two discovery edits
+        enter from either side.
+      </p>
+    </div>
+
+    <div class="animation-lab__stage" aria-label="Campaign animation prototype">
+      <article
+        class="animation-lab__discover animation-lab__discover--left"
+        style="--discover-image: url('{{ left_discovery.image }}');"
+      >
+        <p>{{ left_discovery.kicker }}</p>
+        <h2>{{ left_discovery.title }}</h2>
+        <a class="animation-lab__button" href="{{ left_discovery.href }}">Discover</a>
+      </article>
+
+      <div class="animation-lab__film" aria-label="Animated fragrance campaign film">
+        {% if motion_video %}
+          <video
+            class="animation-lab__film-video"
+            autoplay
+            muted
+            loop
+            playsinline
+            preload="metadata"
+            poster="{{ motion_poster }}"
+          >
+            <source src="{{ motion_video }}" type="video/mp4" />
+          </video>
+        {% else %}
+          {% for image in motion_images %}
+            <span
+              class="animation-lab__film-frame animation-lab__film-frame--{{ loop.index }}"
+              style="--motion-image: url('{{ image }}');"
+            ></span>
+          {% endfor %}
+        {% endif %}
+        <div class="animation-lab__film-caption">
+          <span>{{ center_discovery.kicker }}</span>
+          <strong>{{ center_discovery.title }}</strong>
+          <a class="animation-lab__button" href="{{ center_discovery.href }}">Discover</a>
+        </div>
+      </div>
+
+      <article
+        class="animation-lab__discover animation-lab__discover--right"
+        style="--discover-image: url('{{ right_discovery.image }}');"
+      >
+        <p>{{ right_discovery.kicker }}</p>
+        <h2>{{ right_discovery.title }}</h2>
+        <a class="animation-lab__button" href="{{ right_discovery.href }}">Discover</a>
+      </article>
+    </div>
+  </section>
+{% endblock %}

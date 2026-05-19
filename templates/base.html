@@ -31,6 +31,7 @@
     {% if preview_label %}
       <div class="preview-badge">{{ preview_label }}</div>
     {% endif %}
+    <a class="floating-concierge" href="/#scent-concierge">Concierge</a>
     <div class="page-shell"></div>
     <header class="site-header">
       <div class="announcement-bar">
@@ -47,17 +48,78 @@
         </a>
         <nav class="nav-links" aria-label="Primary">
           {% for link in nav_links %}
-            <a
-              href="{{ link.href }}"
-              class="{% if current_path == link.href or (link.href != '/' and current_path.startswith(link.href)) %}is-active{% endif %}"
-            >
-              {{ link.label }}
-            </a>
+            {% set is_active = current_path == link.href or (link.href != '/' and current_path.startswith(link.href)) %}
+            <div class="nav-item {% if link.children %}nav-item--dropdown{% endif %} {% if link.mega %}nav-item--mega{% endif %}">
+              <a
+                href="{{ link.href }}"
+                class="nav-link {% if is_active %}is-active{% endif %}"
+                {% if link.mega %}aria-haspopup="true"{% endif %}
+              >
+                {{ link.label }}
+              </a>
+              {% if link.children %}
+                <div class="nav-dropdown" aria-label="{{ link.label }} menu">
+                  {% for child in link.children %}
+                    <a href="{{ child.href }}">{{ child.label }}</a>
+                  {% endfor %}
+                </div>
+              {% elif link.mega == "brands" %}
+                <div class="nav-mega" aria-label="Brands menu">
+                  <div class="nav-mega__inner">
+                    <div class="nav-mega__intro">
+                      <p class="section-kicker">Browse houses</p>
+                      <h2>Find a house without opening the filters.</h2>
+                    </div>
+                    <section class="nav-mega__group">
+                      <div class="nav-mega__heading">
+                        <span>Designer</span>
+                        <small>{{ nav_brand_groups.designer|length }} houses</small>
+                      </div>
+                      <div class="nav-mega__links nav-mega__links--designer">
+                        {% for brand in nav_brand_groups.designer %}
+                          <a href="{{ brand.href }}">
+                            <span>{{ brand.name }}</span>
+                            <small>{{ brand.count }}</small>
+                          </a>
+                        {% endfor %}
+                      </div>
+                    </section>
+                    <section class="nav-mega__group">
+                      <div class="nav-mega__heading">
+                        <span>Niche</span>
+                        <small>{{ nav_brand_groups.niche|length }} houses</small>
+                      </div>
+                      <div class="nav-mega__links nav-mega__links--niche">
+                        {% for brand in nav_brand_groups.niche %}
+                          <a href="{{ brand.href }}">
+                            <span>{{ brand.name }}</span>
+                            <small>{{ brand.count }}</small>
+                          </a>
+                        {% endfor %}
+                      </div>
+                    </section>
+                  </div>
+                </div>
+              {% endif %}
+            </div>
           {% endfor %}
         </nav>
         <div class="nav-actions">
-          <form class="nav-search" action="/catalog" method="get">
-            <input type="search" name="search" placeholder="Search Aventus, Chanel, Roja..." />
+          <form class="nav-search" action="/catalog" method="get" data-search-trigger role="search">
+            <button class="nav-search__button" type="button" data-search-open aria-label="Search fragrances">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+                <circle cx="10.75" cy="10.75" r="5.75" />
+                <path d="m15.25 15.25 4 4" />
+              </svg>
+            </button>
+            <input
+              type="search"
+              name="search"
+              placeholder="Search"
+              aria-label="Search fragrances"
+              autocomplete="off"
+              data-search-preview
+            />
           </form>
           <a class="cart-chip" href="/cart" aria-label="Cart">
             <svg
@@ -76,10 +138,25 @@
             </svg>
             <span data-cart-count>0</span>
           </a>
+          <button class="utility-chip" type="button" data-wishlist-trigger aria-label="Wishlist">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+              <path d="M20.2 5.8a5.1 5.1 0 0 0-7.2 0L12 6.8l-1-1a5.1 5.1 0 0 0-7.2 7.2l1 1L12 21.2l7.2-7.2 1-1a5.1 5.1 0 0 0 0-7.2Z" />
+            </svg>
+          </button>
           {% if current_customer %}
-            <a class="account-chip" href="/account">Account</a>
+            <a class="utility-chip" href="/account" aria-label="Account">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="8" r="3.5" />
+                <path d="M5 20a7 7 0 0 1 14 0" />
+              </svg>
+            </a>
           {% else %}
-            <a class="account-chip" href="/account/sign-in">Sign in</a>
+            <a class="utility-chip" href="/account/sign-in" aria-label="Sign in">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="8" r="3.5" />
+                <path d="M5 20a7 7 0 0 1 14 0" />
+              </svg>
+            </a>
           {% endif %}
           <button class="theme-toggle" type="button" data-theme-toggle aria-label="Switch color theme">
             <span data-theme-icon aria-hidden="true">◐</span>
@@ -123,6 +200,26 @@
     </footer>
 
     <div class="toast-stack" data-toast-stack></div>
+    <div class="search-focus" data-search-focus hidden aria-hidden="true">
+      <form class="search-focus__bar" action="/catalog" method="get" data-search-focus-form role="search">
+        <svg class="search-focus__icon" aria-hidden="true" viewBox="0 0 24 24" fill="none">
+          <circle cx="10.75" cy="10.75" r="5.75" />
+          <path d="m15.25 15.25 4 4" />
+        </svg>
+        <input
+          type="search"
+          name="search"
+          data-search-focus-input
+          placeholder="Search brands, notes, or scent families..."
+          autocomplete="off"
+        />
+        <button class="search-focus__close" type="button" data-search-close aria-label="Close search">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+            <path d="M6 6l12 12M18 6 6 18" />
+          </svg>
+        </button>
+      </form>
+    </div>
     <script src="/static/app.js?v={{ asset_version }}"></script>
     {% block scripts %}{% endblock %}
   </body>

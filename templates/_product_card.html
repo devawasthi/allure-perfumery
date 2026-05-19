@@ -3,39 +3,45 @@
   data-reveal
   style="--card-from: {{ item.accent_from }}; --card-to: {{ item.accent_to }};"
 >
+  <button
+    type="button"
+    class="product-card__wishlist"
+    data-wishlist-toggle
+    data-wishlist-id="{{ item.slug }}"
+    data-item-label="{{ item.brand }} {{ item.name }}"
+    aria-label="Add {{ item.brand }} {{ item.name }} to wishlist"
+    aria-pressed="false"
+  >
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+      <path d="M20.2 5.8a5.1 5.1 0 0 0-7.2 0L12 6.8l-1-1a5.1 5.1 0 0 0-7.2 7.2l1 1L12 21.2l7.2-7.2 1-1a5.1 5.1 0 0 0 0-7.2Z" />
+    </svg>
+  </button>
   <a class="product-card__visual" href="/fragrances/{{ item.slug }}" aria-label="{{ item.brand }} {{ item.name }}">
-    <span class="product-card__pill">{{ item.collection_type|title }}</span>
     <img
       class="product-card__image"
       src="{{ item.image_url }}"
       alt="{{ item.image_alt }}"
       loading="lazy"
     />
-    {% if item.photo_icon_url %}
-      <img
-        class="product-card__photo-icon"
-        src="{{ item.photo_icon_url }}"
-        alt="{{ item.brand }} {{ item.name }} bottle"
-        loading="lazy"
-      />
-    {% endif %}
   </a>
   <div class="product-card__body">
+    <p class="product-card__label">{{ item.family|title }}</p>
     <p class="section-kicker">{{ item.brand }}</p>
     <h3><a href="/fragrances/{{ item.slug }}">{{ item.name }}</a></h3>
     <p class="product-card__meta">
-      {{ item.gender|titleize_enum }} &middot; {{ item.concentration }} &middot; {{ item.origin }}
+      {{ item.gender|titleize_enum }} &middot; {{ item.concentration }}
     </p>
     <div class="product-card__footer">
       <div class="product-card__price">
-        <small>From</small>
-        <strong>{{ item.starting_price|money }}</strong>
+        <small>{% if item.has_price_range %}Price range{% else %}Price{% endif %}</small>
+        <strong>{% if item.has_price_range %}{{ item.starting_price|money }} - {{ item.ending_price|money }}{% else %}{{ item.starting_price|money }}{% endif %}</strong>
       </div>
       <div class="product-card__actions">
+        <a class="button product-card__view" href="/fragrances/{{ item.slug }}">View options</a>
         {% if item.quick_add_variant %}
           <button
             type="button"
-            class="button button--ghost"
+            class="button button--ghost product-card__quick"
             data-add-to-cart
             data-variant-id="{{ item.quick_add_variant.id }}"
             data-item-label="{{ item.brand }} {{ item.name }} {{ item.quick_add_variant.size_label }}"
@@ -43,7 +49,6 @@
             Quick add
           </button>
         {% endif %}
-        <a class="button" href="/fragrances/{{ item.slug }}">View options</a>
       </div>
     </div>
   </div>

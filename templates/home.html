@@ -1,64 +1,89 @@
 {% extends "base.html" %}
 
 {% block content %}
-  <section class="hero" style="--hero-image: url('{{ hero_image }}');">
-    <div class="hero__veil"></div>
-    <div class="hero__content">
-      <div class="hero__lead">
-        <p class="section-kicker">Welcome to {{ site_name }}</p>
-        <h1>
-          Find the scent that feels unmistakably yours.
-        </h1>
-        <p class="hero__copy">
-          Explore a curated edit of niche icons, designer signatures, discovery decants,
-          testers, and collector bottles selected for people who want fragrance to feel personal.
-        </p>
-        <div class="hero__actions">
-          <a class="button" href="/catalog?collection_type=niche">Shop Niche</a>
-          <a class="button" href="/catalog?collection_type=designer">Shop Designer</a>
+  <section class="animation-lab animation-lab--home" aria-labelledby="home-campaign-title" data-animation-lab>
+    <div class="animation-lab__copy">
+      <p class="section-kicker">The Scentist Edit</p>
+      <h1 id="home-campaign-title">Enter fragrance through atmosphere.</h1>
+      <p>
+        Begin with bold signatures, luminous trails, and a Louis Vuitton escape
+        composed for slow discovery.
+      </p>
+    </div>
+
+    <div class="animation-lab__stage" aria-label="Featured fragrance campaign">
+      <article
+        class="animation-lab__discover animation-lab__discover--left"
+        style="--discover-image: url('{{ left_discovery.image }}');"
+      >
+        <p>{{ left_discovery.kicker }}</p>
+        <h2>{{ left_discovery.title }}</h2>
+        <a class="animation-lab__button" href="{{ left_discovery.href }}">Discover</a>
+      </article>
+
+      <div class="animation-lab__film" aria-label="Louis Vuitton fragrance film">
+        {% if motion_video %}
+          <video
+            class="animation-lab__film-video"
+            autoplay
+            muted
+            loop
+            playsinline
+            preload="metadata"
+            poster="{{ motion_poster }}"
+          >
+            <source src="{{ motion_video }}" type="video/mp4" />
+          </video>
+        {% else %}
+          {% for image in motion_images %}
+            <span
+              class="animation-lab__film-frame animation-lab__film-frame--{{ loop.index }}"
+              style="--motion-image: url('{{ image }}');"
+            ></span>
+          {% endfor %}
+        {% endif %}
+        <div class="animation-lab__film-caption">
+          <span>{{ center_discovery.kicker }}</span>
+          <strong>{{ center_discovery.title }}</strong>
+          <a class="animation-lab__button" href="{{ center_discovery.href }}">Discover</a>
         </div>
       </div>
 
-      <aside class="hero__panel reveal" data-reveal>
-        <p class="section-kicker">The Scentist Edit</p>
-        <div class="hero__feature-list">
-          <div>
-            <strong>Luxury houses</strong>
-            <span>Prestige names, modern icons, and refined everyday signatures.</span>
-          </div>
-          <div>
-            <strong>Discovery sizes</strong>
-            <span>Try a scent properly before committing to a full bottle.</span>
-          </div>
-          <div>
-            <strong>Collector finds</strong>
-            <span>Selected testers and partials for smarter additions to your wardrobe.</span>
-          </div>
-        </div>
-      </aside>
+      <article
+        class="animation-lab__discover animation-lab__discover--right"
+        style="--discover-image: url('{{ right_discovery.image }}');"
+      >
+        <p>{{ right_discovery.kicker }}</p>
+        <h2>{{ right_discovery.title }}</h2>
+        <a class="animation-lab__button" href="{{ right_discovery.href }}">Discover</a>
+      </article>
     </div>
-    <a class="hero__scroll" href="#shop-by-wearer" aria-label="Scroll to shop by wearer"></a>
   </section>
 
   {% if concierge.enabled %}
     <section class="concierge-section" id="scent-concierge" data-concierge-root>
       <div class="concierge-shell">
-        <div class="concierge-copy">
-          <p class="section-kicker">Scent Concierge</p>
-          <h2>Tell us what you want to smell like.</h2>
-          <p>
-            Share a mood, budget, notes, occasion, or house you already like.
-          </p>
-          <div class="concierge-prompts" aria-label="Sample scent briefs">
-            <button type="button" data-concierge-prompt="Masculine evening fragrance under INR 4,000 with strong projection">
-              Evening
-            </button>
-            <button type="button" data-concierge-prompt="Clean office scent for daily wear, fresh and elegant">
-              Office
-            </button>
-            <button type="button" data-concierge-prompt="Unisex niche decants with amber, vanilla, or tobacco notes">
-              Discovery
-            </button>
+        <div class="concierge-editorial">
+          <figure class="concierge-visual" aria-hidden="true">
+            <img src="/assets/louis-vuitton-pink-hero.png" alt="" loading="lazy" />
+          </figure>
+          <div class="concierge-copy">
+            <p class="section-kicker">Scent Concierge</p>
+            <h2>Tell us what you want to smell like.</h2>
+            <p>
+              Share a mood, budget, notes, occasion, or house you already like.
+            </p>
+            <div class="concierge-prompts" aria-label="Sample scent briefs">
+              <button type="button" data-concierge-prompt="Masculine evening fragrance under INR 4,000 with strong projection">
+                Evening
+              </button>
+              <button type="button" data-concierge-prompt="Clean office scent for daily wear, fresh and elegant">
+                Office
+              </button>
+              <button type="button" data-concierge-prompt="Unisex niche decants with amber, vanilla, or tobacco notes">
+                Discovery
+              </button>
+            </div>
           </div>
         </div>
 
@@ -84,60 +109,32 @@
     </section>
   {% endif %}
 
-  <section class="gender-gateway" id="shop-by-wearer">
-    <div class="section-heading section-heading--center">
-      <p class="section-kicker">Shop By Wearer</p>
-    </div>
-    <div class="gateway-grid">
-      <a
-        class="gateway-card gateway-card--him reveal"
-        data-reveal
-        href="/catalog?gender=him"
-        style="--gateway-image: url('/assets/creed1.jpeg?v=2');"
-      >
-        <span>For Him</span>
-      </a>
-      <a
-        class="gateway-card gateway-card--her reveal"
-        data-reveal
-        href="/catalog?gender=her"
-        style="--gateway-image: url('/assets/her11.jpg?v=2');"
-      >
-        <span>For Her</span>
-      </a>
-      <a
-        class="gateway-card gateway-card--unisex reveal"
-        data-reveal
-        href="/catalog?gender=unisex"
-        style="--gateway-image: url('/assets/banner1.jpg?v=2');"
-      >
-        <span>Unisex</span>
-      </a>
-    </div>
-  </section>
-
   <section class="mode-grid">
-    <div class="mode-grid__heading">
+    <div class="mode-grid__heading reveal" data-reveal>
       <p class="section-kicker">Ways To Shop</p>
       <h2>Choose the format that fits how you wear fragrance.</h2>
     </div>
     <div class="mode-grid__cards">
-      <article class="mode-card reveal" data-reveal data-index="01">
+      <article class="mode-card reveal" data-reveal data-index="01" style="--mode-image: url('/assets/creed-aventus.png');">
+        <span class="mode-card__edge" aria-hidden="true"></span>
         <h3>Retail Bottles</h3>
         <p>Full presentation bottles for the signatures you already love.</p>
         <a href="/catalog?sale_type=retail">Explore retail</a>
       </article>
-      <article class="mode-card reveal" data-reveal data-index="02">
+      <article class="mode-card reveal" data-reveal data-index="02" style="--mode-image: url('/assets/bleu-de-chanel-parfum.png');">
+        <span class="mode-card__edge" aria-hidden="true"></span>
         <h3>Decants</h3>
         <p>Discovery-friendly sizes for testing, travel, and rotation.</p>
         <a href="/catalog?sale_type=decant">Explore decants</a>
       </article>
-      <article class="mode-card reveal" data-reveal data-index="03">
+      <article class="mode-card reveal" data-reveal data-index="03" style="--mode-image: url('/assets/louis-vuitton-on-the-beach.jpg');">
+        <span class="mode-card__edge" aria-hidden="true"></span>
         <h3>Partial Bottles</h3>
         <p>Selected collector bottles for rare finds and sharper value.</p>
         <a href="/catalog?sale_type=partial">Explore partials</a>
       </article>
-      <article class="mode-card reveal" data-reveal data-index="04">
+      <article class="mode-card reveal" data-reveal data-index="04" style="--mode-image: url('/assets/hero6.jpg');">
+        <span class="mode-card__edge" aria-hidden="true"></span>
         <h3>Testers</h3>
         <p>Authentic fragrance in simpler presentation for daily wearers.</p>
         <a href="/catalog?sale_type=tester">Explore testers</a>
@@ -145,7 +142,7 @@
     </div>
   </section>
 
-  <section class="brand-ribbon">
+  <section class="brand-ribbon" id="brands">
     <div class="brand-ribbon__track" aria-label="Featured fragrance houses">
       {% for brand in brands %}
         <a
@@ -170,6 +167,39 @@
         </a>
       {% endfor %}
     </div>
+  </section>
+
+  <section class="ambient-break" aria-labelledby="ambient-break-title">
+    <video
+      class="ambient-break__video"
+      autoplay
+      muted
+      loop
+      playsinline
+      preload="metadata"
+    >
+      <source src="/assets/armani.mp4" type="video/mp4" />
+    </video>
+    <div class="ambient-break__content">
+      <p class="section-kicker">House Spotlight</p>
+      <h2 id="ambient-break-title">A fragrance should move before it is worn.</h2>
+      <a class="ambient-break__link" href="/catalog?brand=Giorgio%20Armani">Discover Armani</a>
+    </div>
+  </section>
+
+  <section class="founder-spotlight" aria-labelledby="founder-spotlight-title">
+    <h2 id="founder-spotlight-title">Gaurav Verma</h2>
+    <figure class="founder-spotlight__figure">
+      <img
+        src="/assets/gaurav-verma-founder.png"
+        alt="Gaurav Verma inside The Scentist fragrance studio"
+        loading="lazy"
+      />
+    </figure>
+    <p>
+      Gaurav Verma continues to create unexpected fragrance experiences that embody
+      ultimate sophistication and timeless luxury.
+    </p>
   </section>
 
   <section class="product-section">

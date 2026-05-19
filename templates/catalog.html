@@ -4,83 +4,151 @@
   <section class="catalog-layout catalog-layout--minimal">
     <aside class="filter-panel reveal" data-reveal>
       <form action="/catalog" method="get" class="filter-form">
-        <label>
-          Search
-          <input type="search" name="search" value="{{ active_filters.search }}" placeholder="Search by fragrance or house" />
-          {% if search_suggestion %}
-            <a class="filter-form__hint" href="{{ search_suggestion_href }}">Did you mean {{ search_suggestion }}?</a>
-          {% endif %}
-        </label>
+        <section class="filter-accordion is-open" data-filter-accordion>
+          <button class="filter-accordion__trigger" type="button" data-filter-accordion-trigger aria-expanded="true">
+            <span>Search</span>
+            {% if active_filters.search %}<small>{{ active_filters.search }}</small>{% endif %}
+          </button>
+          <div class="filter-accordion__panel">
+            <div class="filter-accordion__inner">
+              <label class="filter-field">
+                <span class="sr-only">Search</span>
+                <input type="search" name="search" value="{{ active_filters.search }}" placeholder="Search by fragrance or house" />
+              </label>
+              {% if search_suggestion %}
+                <a class="filter-form__hint" href="{{ search_suggestion_href }}">Did you mean {{ search_suggestion }}?</a>
+              {% endif %}
+            </div>
+          </div>
+        </section>
 
-        <label>
-          Collection
-          <span class="select-shell">
-            <select name="collection_type" data-custom-select>
-              <option value="">All collections</option>
-              {% for option in filters.collections %}
-                <option value="{{ option }}" {% if active_filters.collection_type == option %}selected{% endif %}>
-                  {{ option|title }}
-                </option>
-              {% endfor %}
-            </select>
-          </span>
-        </label>
+        <section class="filter-accordion {% if active_filters.collection_type %}is-open{% endif %}" data-filter-accordion>
+          <button class="filter-accordion__trigger" type="button" data-filter-accordion-trigger aria-expanded="{% if active_filters.collection_type %}true{% else %}false{% endif %}">
+            <span>Collection</span>
+            {% if active_filters.collection_type %}<small>{{ active_filters.collection_type|title }}</small>{% endif %}
+          </button>
+          <div class="filter-accordion__panel">
+            <div class="filter-accordion__inner">
+              <label class="filter-field">
+                <span class="sr-only">Collection</span>
+                <span class="select-shell">
+                  <select name="collection_type" data-custom-select>
+                    <option value="">All collections</option>
+                    {% for option in filters.collections %}
+                      <option value="{{ option }}" {% if active_filters.collection_type == option %}selected{% endif %}>
+                        {{ option|title }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </span>
+              </label>
+            </div>
+          </div>
+        </section>
 
-        <label>
-          Gender
-          <span class="select-shell">
-            <select name="gender" data-custom-select>
-              <option value="">All wearers</option>
-              {% for option in filters.genders %}
-                <option value="{{ option }}" {% if active_filters.gender == option %}selected{% endif %}>
-                  {{ option|titleize_enum }}
-                </option>
-              {% endfor %}
-            </select>
-          </span>
-        </label>
+        <section class="filter-accordion is-open" data-filter-accordion>
+          <button class="filter-accordion__trigger" type="button" data-filter-accordion-trigger aria-expanded="true">
+            <span>Gender</span>
+            {% if active_filters.gender %}<small>{{ active_filters.gender|titleize_enum }}</small>{% endif %}
+          </button>
+          <div class="filter-accordion__panel">
+            <div class="filter-accordion__inner">
+              <label class="filter-field">
+                <span class="sr-only">Gender</span>
+                <span class="select-shell">
+                  <select name="gender" data-custom-select>
+                    <option value="">All wearers</option>
+                    {% for option in filters.genders %}
+                      <option value="{{ option }}" {% if active_filters.gender == option %}selected{% endif %}>
+                        {{ option|titleize_enum }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </span>
+              </label>
+            </div>
+          </div>
+        </section>
 
-        <label>
-          House
-          <span class="select-shell">
-            <select name="brand" data-custom-select>
-              <option value="">All houses</option>
-              {% for option in filters.brands %}
-                <option value="{{ option }}" {% if active_filters.brand == option %}selected{% endif %}>
-                  {{ option }}
-                </option>
-              {% endfor %}
-            </select>
-          </span>
-        </label>
+        <section class="filter-accordion filter-accordion--searchable is-open" data-filter-accordion>
+          <button class="filter-accordion__trigger" type="button" data-filter-accordion-trigger aria-expanded="true">
+            <span>House</span>
+            {% if active_filters.brand %}<small>{{ active_filters.brand }}</small>{% endif %}
+          </button>
+          <div class="filter-accordion__panel">
+            <div class="filter-accordion__inner">
+              <label class="filter-field filter-field--search">
+                <span class="sr-only">Search houses</span>
+                <input type="search" placeholder="Search houses" autocomplete="off" data-filter-search />
+              </label>
+              <label class="filter-field">
+                <span class="sr-only">House</span>
+                <span class="select-shell">
+                  <select name="brand" data-custom-select data-filter-list="true">
+                    <option value="">All houses</option>
+                    {% for option in filters.brands %}
+                      <option value="{{ option }}" {% if active_filters.brand == option %}selected{% endif %}>
+                        {{ option }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </span>
+              </label>
+            </div>
+          </div>
+        </section>
 
-        <label>
-          Family
-          <span class="select-shell">
-            <select name="family" data-custom-select>
-              <option value="">All families</option>
-              {% for option in filters.families %}
-                <option value="{{ option }}" {% if active_filters.family == option %}selected{% endif %}>
-                  {{ option|title }}
-                </option>
-              {% endfor %}
-            </select>
-          </span>
-        </label>
+        <section class="filter-accordion filter-accordion--searchable {% if active_filters.family %}is-open{% endif %}" data-filter-accordion>
+          <button class="filter-accordion__trigger" type="button" data-filter-accordion-trigger aria-expanded="{% if active_filters.family %}true{% else %}false{% endif %}">
+            <span>Family</span>
+            {% if active_filters.family %}<small>{{ active_filters.family|title }}</small>{% endif %}
+          </button>
+          <div class="filter-accordion__panel">
+            <div class="filter-accordion__inner">
+              <label class="filter-field filter-field--search">
+                <span class="sr-only">Search families</span>
+                <input type="search" placeholder="Search families" autocomplete="off" data-filter-search />
+              </label>
+              <label class="filter-field">
+                <span class="sr-only">Family</span>
+                <span class="select-shell">
+                  <select name="family" data-custom-select data-filter-list="true">
+                    <option value="">All families</option>
+                    {% for option in filters.families %}
+                      <option value="{{ option }}" {% if active_filters.family == option %}selected{% endif %}>
+                        {{ option|title }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </span>
+              </label>
+            </div>
+          </div>
+        </section>
 
-        <label>
-          Type
-          <span class="select-shell">
-            <select name="sale_type" data-custom-select>
-              <option value="">All types</option>
-              {% for option in filters.sale_types %}
-                <option value="{{ option }}" {% if active_filters.sale_type == option %}selected{% endif %}>
-                  {{ option|title }}
-                </option>
-              {% endfor %}
-            </select>
-          </span>
-        </label>
+        <section class="filter-accordion {% if active_filters.sale_type %}is-open{% endif %}" data-filter-accordion>
+          <button class="filter-accordion__trigger" type="button" data-filter-accordion-trigger aria-expanded="{% if active_filters.sale_type %}true{% else %}false{% endif %}">
+            <span>Type</span>
+            {% if active_filters.sale_type %}<small>{{ active_filters.sale_type|title }}</small>{% endif %}
+          </button>
+          <div class="filter-accordion__panel">
+            <div class="filter-accordion__inner">
+              <label class="filter-field">
+                <span class="sr-only">Type</span>
+                <span class="select-shell">
+                  <select name="sale_type" data-custom-select>
+                    <option value="">All types</option>
+                    {% for option in filters.sale_types %}
+                      <option value="{{ option }}" {% if active_filters.sale_type == option %}selected{% endif %}>
+                        {{ option|title }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </span>
+              </label>
+            </div>
+          </div>
+        </section>
 
         <div class="filter-form__actions">
           <button type="submit" class="button">Apply filters</button>
@@ -92,7 +160,26 @@
     <div>
       <div class="catalog-status">
         <span><strong>{{ catalog_total }}</strong> fragrances</span>
-        <span>Page <strong>{{ pagination.page }}</strong> of {{ pagination.total_pages }}</span>
+        <form class="catalog-sort" action="/catalog" method="get">
+          {% for key, value in active_filters.items() %}
+            {% if value and key != "sort" %}
+              <input type="hidden" name="{{ key }}" value="{{ value }}" />
+            {% endif %}
+          {% endfor %}
+          <label class="catalog-sort__control">
+            <span class="catalog-sort__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M4 7h16M7 12h10M10 17h4" />
+              </svg>
+            </span>
+            <select name="sort" data-auto-submit aria-label="Sort catalog">
+              <option value="" {% if not active_filters.sort %}selected{% endif %}>Relevant</option>
+              <option value="price_high" {% if active_filters.sort == "price_high" %}selected{% endif %}>High to low</option>
+              <option value="price_low" {% if active_filters.sort == "price_low" %}selected{% endif %}>Low to high</option>
+              <option value="discount_high" {% if active_filters.sort == "discount_high" %}selected{% endif %}>Discount high to low</option>
+            </select>
+          </label>
+        </form>
       </div>
 
       {% if catalog_items %}
@@ -108,9 +195,10 @@
             {% else %}
               <span></span>
             {% endif %}
-            <span>{{ pagination.page }} / {{ pagination.total_pages }}</span>
             {% if pagination.has_next %}
               <a class="button button--ghost" href="{{ pagination.next_href }}">Next</a>
+            {% else %}
+              <span></span>
             {% endif %}
           </nav>
         {% endif %}

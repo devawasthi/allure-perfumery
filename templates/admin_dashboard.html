@@ -3,21 +3,48 @@
 {% block content %}
   <section class="utility-hero">
     <p class="section-kicker">Admin</p>
-    <h1>Orders</h1>
-    <p>Recent orders, payment state, and fulfilment status.</p>
+    <h1>Operations desk</h1>
+    <p>Inventory, fragrance catalog, order fulfilment, and stock health in one protected workspace.</p>
   </section>
 
   <section class="admin-toolbar">
-    <a class="button button--ghost" href="/admin">Dashboard</a>
+    <a class="button" href="/admin/fragrances/new">Add fragrance</a>
     <a class="button button--ghost" href="/admin/fragrances">Inventory</a>
+    <a class="button button--ghost" href="/admin/orders">Orders</a>
     <form action="/admin/logout" method="post">
       <button class="button button--ghost" type="submit">Logout</button>
     </form>
   </section>
 
+  <section class="admin-metrics">
+    <article class="order-card">
+      <span>Active fragrances</span>
+      <strong>{{ summary.active_fragrances }}</strong>
+    </article>
+    <article class="order-card">
+      <span>Stock units</span>
+      <strong>{{ summary.stock_units }}</strong>
+    </article>
+    <article class="order-card">
+      <span>Low stock variants</span>
+      <strong>{{ summary.low_stock_variants }}</strong>
+    </article>
+    <article class="order-card">
+      <span>Open orders</span>
+      <strong>{{ summary.open_orders }}</strong>
+    </article>
+  </section>
+
   <section class="order-card order-card--full">
+    <div class="admin-section-head">
+      <div>
+        <p class="section-kicker">Recent Orders</p>
+        <h2>Fulfilment queue</h2>
+      </div>
+      <a class="button button--ghost" href="/admin/orders">View all</a>
+    </div>
     <div class="admin-order-list">
-      {% for order in orders %}
+      {% for order in recent_orders %}
         <a class="admin-order-row" href="/admin/orders/{{ order.order_number }}">
           <div>
             <strong>{{ order.order_number }}</strong>

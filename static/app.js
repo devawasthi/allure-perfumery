@@ -1,4 +1,5 @@
 const CART_KEY = "the-scentist-cart-v1";
+const WISHLIST_KEY = "the-scentist-wishlist-v1";
 const THEME_KEY = "the-scentist-theme";
 const SHIPPING_FEE = 350;
 const FREE_SHIPPING_THRESHOLD = 12500;
@@ -92,6 +93,49 @@ function addToCart(variantId, label) {
   }
   writeCart(cart);
   showToast(`${label} added to cart.`);
+}
+
+function readWishlist() {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(WISHLIST_KEY) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => String(item || "").trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function writeWishlist(items) {
+  const uniqueItems = [...new Set(items.filter(Boolean))];
+  window.localStorage.setItem(WISHLIST_KEY, JSON.stringify(uniqueItems));
+  updateWishlistButtons();
+}
+
+function updateWishlistButtons() {
+  const wishlist = new Set(readWishlist());
+  document.querySelectorAll("[data-wishlist-toggle]").forEach((button) => {
+    const isActive = wishlist.has(button.dataset.wishlistId || "");
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-pressed", isActive ? "true" : "false");
+    const label = button.dataset.itemLabel || "This fragrance";
+    button.setAttribute(
+      "aria-label",
+      `${isActive ? "Remove" : "Add"} ${label} ${isActive ? "from" : "to"} wishlist`
+    );
+  });
+}
+
+function toggleWishlist(itemId, label) {
+  if (!itemId) return;
+  const wishlist = readWishlist();
+  const exists = wishlist.includes(itemId);
+  const nextWishlist = exists
+    ? wishlist.filter((item) => item !== itemId)
+    : [...wishlist, itemId];
+  writeWishlist(nextWishlist);
+  showToast(`${label || "Fragrance"} ${exists ? "removed from" : "added to"} wishlist.`);
 }
 
 function updateQuantity(variantId, delta) {
@@ -313,7 +357,7 @@ async function mountCartPage() {
             </div>
             <div class="cart-item__price">
               <strong>${money(item.line_total)}</strong>
-              <div>${item.quantity} x ${money(item.price_inr)}</div>
+              <div class="cart-item__unit">${item.quantity} x ${money(item.price_inr)}</div>
               <button type="button" data-cart-remove data-variant-id="${item.variant_id}">Remove</button>
             </div>
           </article>
@@ -664,6 +708,9 @@ function mountCustomSelects() {
     const listId = `custom-select-list-${index}-${select.name || "filter"}`;
 
     custom.className = "custom-select";
+    if (select.dataset.filterList === "true") {
+      custom.classList.add("custom-select--inline-list");
+    }
     button.type = "button";
     button.className = "custom-select__button";
     button.setAttribute("aria-haspopup", "listbox");
@@ -746,7 +793,310 @@ function mountCustomSelects() {
   });
 }
 
+function mountFilterAccordions() {
+  document.querySelectorAll("[data-filter-accordion]").forEach((accordion) => {
+    const trigger = accordion.querySelector("[data-filter-accordion-trigger]");
+    if (!trigger || trigger.dataset.accordionMounted === "true") return;
+
+    trigger.dataset.accordionMounted = "true";
+    trigger.addEventListener("click", () => {
+      const isOpen = accordion.classList.toggle("is-open");
+      trigger.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    });
+  });
+}
+
+function mountFilterSearches() {
+  document.querySelectorAll("[data-filter-search]").forEach((input) => {
+    if (input.dataset.filterSearchMounted === "true") return;
+    input.dataset.filterSearchMounted = "true";
+    const accordion = input.closest("[data-filter-accordion]");
+    const list = accordion?.querySelector(".custom-select__list");
+    if (!list) return;
+
+    const filterOptions = () => {
+      const query = input.value.trim().toLowerCase();
+      list.querySelectorAll(".custom-select__option").forEach((option) => {
+        const label = option.textContent.trim().toLowerCase();
+        option.hidden = Boolean(query) && !label.includes(query);
+      });
+    };
+
+    input.addEventListener("input", filterOptions);
+    filterOptions();
+  });
+}
+
+function mountSmartHeader() {
+  const header = document.querySelector(".site-header");
+  if (!header) return;
+
+  const announcement = header.querySelector(".announcement-bar");
+  const nav = header.querySelector(".nav-wrap");
+  let ticking = false;
+  let isCondensed = false;
+  let isNavHidden = false;
+  let lastScrollY = Math.max(window.scrollY, 0);
+
+  function setHeaderMetrics() {
+    const navHeight = nav?.offsetHeight || header.offsetHeight || 0;
+    const announcementHeight = isCondensed ? 0 : announcement?.scrollHeight || 0;
+    const visibleHeight = isNavHidden ? 0 : navHeight + announcementHeight;
+    const visibleOffset = isNavHidden ? 16 : Math.max(72, visibleHeight + 12);
+    document.documentElement.style.setProperty("--site-header-height", `${visibleHeight}px`);
+    document.documentElement.style.setProperty("--filter-sticky-top", `${visibleOffset}px`);
+  }
+
+  function setCondensed(nextCondensed) {
+    if (isCondensed === nextCondensed) return;
+    isCondensed = nextCondensed;
+    header.classList.toggle("is-condensed", isCondensed);
+    setHeaderMetrics();
+  }
+
+  function setNavHidden(nextHidden) {
+    if (isNavHidden === nextHidden) return;
+    isNavHidden = nextHidden;
+    header.classList.toggle("is-nav-hidden", isNavHidden);
+    if (isNavHidden) {
+      header.querySelectorAll(".nav-item--mega.is-open").forEach((item) => {
+        item.classList.remove("is-open");
+      });
+    }
+    setHeaderMetrics();
+  }
+
+  function update() {
+    ticking = false;
+    const currentScrollY = Math.max(window.scrollY, 0);
+    const scrollDelta = currentScrollY - lastScrollY;
+    const isSearchOpen = document.body.classList.contains("search-focus-open");
+    const hasOpenMenu = Boolean(header.querySelector(".nav-item--mega.is-open"));
+
+    header.classList.toggle("is-glass", currentScrollY > 12);
+    setCondensed(!isSearchOpen && currentScrollY > 8);
+
+    if (isSearchOpen || hasOpenMenu || currentScrollY <= 8) {
+      setNavHidden(false);
+    } else if (scrollDelta > 14 && currentScrollY > 120) {
+      setNavHidden(true);
+    } else if (scrollDelta < -4) {
+      setNavHidden(false);
+    }
+
+    lastScrollY = currentScrollY;
+  }
+
+  function requestUpdate() {
+    if (ticking) return;
+    ticking = true;
+    window.requestAnimationFrame(update);
+  }
+
+  setHeaderMetrics();
+  update();
+  window.addEventListener("scroll", requestUpdate, { passive: true });
+  window.addEventListener("resize", () => {
+    setHeaderMetrics();
+    requestUpdate();
+  });
+}
+
+function mountSearchFocus() {
+  const overlay = document.querySelector("[data-search-focus]");
+  const overlayForm = overlay?.querySelector("[data-search-focus-form]");
+  const overlayInput = overlay?.querySelector("[data-search-focus-input]");
+  const closeButton = overlay?.querySelector("[data-search-close]");
+  const trigger = document.querySelector("[data-search-trigger]");
+  const triggerInput = trigger?.querySelector("[data-search-preview]");
+  if (!overlay || !overlayForm || !overlayInput || !trigger) return;
+
+  let closeTimer = null;
+
+  function openSearch(seedValue = "") {
+    window.clearTimeout(closeTimer);
+    overlay.hidden = false;
+    overlay.setAttribute("aria-hidden", "false");
+    document.body.classList.add("search-focus-open");
+
+    const cleanSeed = String(seedValue || "").trim();
+    overlayInput.value = cleanSeed;
+
+    window.requestAnimationFrame(() => {
+      overlay.classList.add("is-open");
+      window.setTimeout(() => {
+        overlayInput.focus();
+        overlayInput.select();
+      }, 120);
+    });
+  }
+
+  function closeSearch() {
+    overlay.classList.remove("is-open");
+    document.body.classList.remove("search-focus-open");
+    overlay.setAttribute("aria-hidden", "true");
+    closeTimer = window.setTimeout(() => {
+      overlay.hidden = true;
+      overlayInput.value = "";
+      triggerInput?.blur();
+    }, 180);
+  }
+
+  function openFromTrigger(event) {
+    event.preventDefault();
+    openSearch(triggerInput?.value || "");
+  }
+
+  trigger.addEventListener("submit", openFromTrigger);
+  trigger.addEventListener("click", openFromTrigger);
+  trigger.addEventListener("pointerdown", () => trigger.classList.add("is-peeking"));
+  trigger.addEventListener("pointerenter", () => trigger.classList.add("is-peeking"));
+  trigger.addEventListener("pointerleave", () => trigger.classList.remove("is-peeking"));
+  trigger.addEventListener("focusout", () => trigger.classList.remove("is-peeking"));
+
+  closeButton?.addEventListener("click", closeSearch);
+
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) {
+      closeSearch();
+    }
+  });
+
+  overlayForm.addEventListener("submit", (event) => {
+    const query = overlayInput.value.trim();
+    if (!query) {
+      event.preventDefault();
+      closeSearch();
+      return;
+    }
+    overlayInput.value = query;
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && overlay.classList.contains("is-open")) {
+      closeSearch();
+    }
+  });
+}
+
+function mountMegaMenus() {
+  const megaItems = document.querySelectorAll(".nav-item--mega");
+  if (!megaItems.length) return;
+
+  megaItems.forEach((item) => {
+    const trigger = item.querySelector(":scope > .nav-link");
+    if (!trigger || trigger.dataset.megaMounted === "true") return;
+    trigger.dataset.megaMounted = "true";
+    trigger.addEventListener("click", (event) => {
+      if (item.classList.contains("is-open")) return;
+      event.preventDefault();
+      megaItems.forEach((node) => node.classList.remove("is-open"));
+      item.classList.add("is-open");
+    });
+  });
+
+  document.addEventListener("click", (event) => {
+    if (event.target.closest(".nav-item--mega")) return;
+    megaItems.forEach((item) => item.classList.remove("is-open"));
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    megaItems.forEach((item) => item.classList.remove("is-open"));
+  });
+}
+
+function mountAutoSubmitControls() {
+  document.querySelectorAll("[data-auto-submit]").forEach((control) => {
+    control.addEventListener("change", () => {
+      control.form?.requestSubmit();
+    });
+  });
+}
+
+function mountHeroCarousel() {
+  const root = document.querySelector("[data-hero-carousel]");
+  if (!root) return;
+
+  const frames = Array.from(root.querySelectorAll(".hero__media-frame"));
+  if (frames.length < 2 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+  let activeIndex = Math.max(0, frames.findIndex((frame) => frame.classList.contains("is-active")));
+
+  window.setInterval(() => {
+    if (document.hidden) return;
+    frames[activeIndex].classList.remove("is-active");
+    activeIndex = (activeIndex + 1) % frames.length;
+    frames[activeIndex].classList.add("is-active");
+  }, 6500);
+}
+
+function mountAnimationLab() {
+  const lab = document.querySelector("[data-animation-lab]");
+  if (!lab) return;
+
+  const film = lab.querySelector(".animation-lab__film");
+  if (!film) return;
+
+  const splitVisibility = 0.8;
+  const restoreTopRatio = 0.18;
+  let lastScrollY = window.scrollY;
+  let isSplit = lab.classList.contains("is-split");
+  let ticking = false;
+
+  function getVerticalVisibleRatio(element) {
+    const rect = element.getBoundingClientRect();
+    const visibleHeight = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
+    return visibleHeight / Math.max(1, rect.height);
+  }
+
+  function updateAnimationState() {
+    ticking = false;
+    const currentScrollY = window.scrollY;
+    const isScrollingDown = currentScrollY > lastScrollY + 1;
+    const isScrollingUp = currentScrollY < lastScrollY - 1;
+    const labRect = lab.getBoundingClientRect();
+    const isInView = labRect.top < window.innerHeight && labRect.bottom > 0;
+    const filmRect = film.getBoundingClientRect();
+    const visibleRatio = getVerticalVisibleRatio(film);
+    const isComposedInViewport = filmRect.top <= window.innerHeight * 0.38;
+
+    if (currentScrollY <= 1) {
+      isSplit = false;
+    } else if (isInView && isScrollingDown && isComposedInViewport && visibleRatio >= splitVisibility) {
+      isSplit = true;
+    } else if (isScrollingUp && labRect.top > window.innerHeight * restoreTopRatio) {
+      isSplit = false;
+    }
+
+    lab.classList.toggle("is-split", isSplit);
+    lastScrollY = currentScrollY;
+  }
+
+  function requestUpdate() {
+    if (ticking) return;
+    ticking = true;
+    window.requestAnimationFrame(updateAnimationState);
+  }
+
+  updateAnimationState();
+  window.addEventListener("scroll", requestUpdate, { passive: true });
+  window.addEventListener("resize", requestUpdate);
+}
+
 document.addEventListener("click", (event) => {
+  const wishlistToggle = event.target.closest("[data-wishlist-toggle]");
+  if (wishlistToggle) {
+    toggleWishlist(wishlistToggle.dataset.wishlistId, wishlistToggle.dataset.itemLabel || "Fragrance");
+    return;
+  }
+
+  const wishlistButton = event.target.closest("[data-wishlist-trigger]");
+  if (wishlistButton) {
+    showToast("Wishlist is coming soon.");
+    return;
+  }
+
   const addButton = event.target.closest("[data-add-to-cart]");
   if (addButton) {
     addToCart(Number(addButton.dataset.variantId), addButton.dataset.itemLabel || "Item");
@@ -768,6 +1118,7 @@ document.addEventListener("click", (event) => {
 });
 
 updateCartCount();
+updateWishlistButtons();
 mountThemeToggle();
 mountReveals();
 mountGatewayTilt();
@@ -775,3 +1126,11 @@ mountConcierge();
 mountCartPage();
 mountCheckoutPage();
 mountCustomSelects();
+mountFilterAccordions();
+mountFilterSearches();
+mountSearchFocus();
+mountMegaMenus();
+mountAutoSubmitControls();
+mountHeroCarousel();
+mountAnimationLab();
+mountSmartHeader();

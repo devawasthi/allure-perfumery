@@ -23,9 +23,11 @@ env/
 # Local SQLite development data
 data/*.sqlite3
 data/*.sqlite3-*
+data/*.sqlite3.*
 
 # Node dependencies/build output
 node_modules/
+allure-perfumery-backend/
 allure-perfumery-frontend/
 allure-perfumery-backend/node_modules/
 allure-perfumery-frontend/node_modules/

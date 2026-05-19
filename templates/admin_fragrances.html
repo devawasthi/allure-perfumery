@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="utility-hero">
+    <p class="section-kicker">Admin Inventory</p>
+    <h1>Fragrance catalog</h1>
+    <p>Add, archive, edit stock, and keep the storefront synced with real inventory.</p>
+  </section>
+
+  <section class="admin-toolbar">
+    <a class="button button--ghost" href="/admin">Dashboard</a>
+    <a class="button button--ghost" href="/admin/orders">Orders</a>
+    <a class="button" href="/admin/fragrances/new">Add fragrance</a>
+  </section>
+
+  <section class="admin-metrics">
+    <article class="order-card">
+      <span>Active</span>
+      <strong>{{ summary.active_fragrances }}</strong>
+    </article>
+    <article class="order-card">
+      <span>Archived</span>
+      <strong>{{ summary.archived_fragrances }}</strong>
+    </article>
+    <article class="order-card">
+      <span>Variants</span>
+      <strong>{{ summary.variants }}</strong>
+    </article>
+    <article class="order-card">
+      <span>Out of stock</span>
+      <strong>{{ summary.out_of_stock_variants }}</strong>
+    </article>
+  </section>
+
+  <section class="order-card order-card--full">
+    <form class="admin-filter-bar" action="/admin/fragrances" method="get">
+      <label>
+        Search inventory
+        <input type="search" name="q" value="{{ search }}" placeholder="Brand, fragrance, slug, family" />
+      </label>
+      <label>
+        Status
+        <select name="status">
+          <option value="active" {% if status == "active" %}selected{% endif %}>Active</option>
+          <option value="archived" {% if status == "archived" %}selected{% endif %}>Archived</option>
+          <option value="all" {% if status == "all" %}selected{% endif %}>All</option>
+        </select>
+      </label>
+      <button class="button" type="submit">Filter</button>
+      <a class="button button--ghost" href="/admin/fragrances">Reset</a>
+    </form>
+  </section>
+
+  <section class="order-card order-card--full">
+    <div class="admin-inventory-list">
+      {% for item in items %}
+        <article class="admin-inventory-row {% if not item.is_active %}is-archived{% endif %}">
+          <div>
+            <span class="section-kicker">{{ item.collection_type|title }} &middot; {{ item.family|title }}</span>
+            <h2>{{ item.brand }} {{ item.name }}</h2>
+            <p>{{ item.slug }}</p>
+          </div>
+          <div class="admin-inventory-row__stats">
+            <span>{{ item.variant_count }} variants</span>
+            <strong>{{ item.total_stock }} units</strong>
+            {% if item.low_stock_count %}
+              <em>{{ item.low_stock_count }} low stock</em>
+            {% endif %}
+          </div>
+          <div class="admin-inventory-row__stats">
+            <span>Price range</span>
+            <strong>
+              {% if item.min_price and item.max_price and item.min_price != item.max_price %}
+                {{ item.min_price|money }} - {{ item.max_price|money }}
+              {% elif item.min_price %}
+                {{ item.min_price|money }}
+              {% else %}
+                Not priced
+              {% endif %}
+            </strong>
+          </div>
+          <div class="admin-inventory-row__actions">
+            <a class="button button--ghost" href="/admin/fragrances/{{ item.slug }}/edit">Edit</a>
+          </div>
+        </article>
+      {% else %}
+        <p class="checkout-form__status">No fragrances match this filter.</p>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

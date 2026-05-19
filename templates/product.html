@@ -1,76 +1,167 @@
 {% extends "base.html" %}
 
 {% block content %}
-  <section class="product-hero">
+  {% set concentration_key = fragrance.concentration|lower %}
+  {% if "extrait" in concentration_key %}
+    {% set longevity_score = 92 %}
+    {% set sillage_score = 78 %}
+    {% set projection_score = 70 %}
+  {% elif "eau de parfum" in concentration_key or "edp" in fragrance.name|lower %}
+    {% set longevity_score = 80 %}
+    {% set sillage_score = 66 %}
+    {% set projection_score = 58 %}
+  {% elif "parfum" in concentration_key %}
+    {% set longevity_score = 88 %}
+    {% set sillage_score = 72 %}
+    {% set projection_score = 64 %}
+  {% elif "toilette" in concentration_key or "edt" in fragrance.name|lower %}
+    {% set longevity_score = 62 %}
+    {% set sillage_score = 48 %}
+    {% set projection_score = 44 %}
+  {% else %}
+    {% set longevity_score = 72 %}
+    {% set sillage_score = 56 %}
+    {% set projection_score = 52 %}
+  {% endif %}
+
+  <section class="product-hero product-hero--magazine">
     <div
       class="product-hero__visual reveal"
       data-reveal
       style="--card-from: {{ fragrance.accent_from }}; --card-to: {{ fragrance.accent_to }};"
     >
-      <span class="product-hero__badge">{{ fragrance.collection_type|title }} Selection</span>
       <img
         class="product-hero__image"
         src="{{ fragrance.image_url }}"
         alt="{{ fragrance.image_alt }}"
         loading="eager"
       />
-      <div class="product-hero__bottle">
-        <strong>{{ fragrance.concentration }}</strong>
-      </div>
     </div>
 
-    <div class="product-hero__copy">
+    <div class="product-hero__copy reveal" data-reveal>
       <p class="section-kicker">{{ fragrance.brand }}</p>
       <h1>{{ fragrance.name }}</h1>
       <p class="product-hero__meta">
-        {{ fragrance.gender|titleize_enum }} &middot; {{ fragrance.family|title }} &middot; {{ fragrance.origin }}
+        {{ fragrance.gender|titleize_enum }} &middot; {{ fragrance.family|title }} &middot; {{ fragrance.concentration }}
       </p>
       <div class="product-hero__pricing">
-        <small>Starts from</small>
-        <strong>{{ fragrance.starting_price|money }}</strong>
+        <small>{% if fragrance.has_price_range %}Price range{% else %}Price{% endif %}</small>
+        <strong>{% if fragrance.has_price_range %}{{ fragrance.starting_price|money }} - {{ fragrance.ending_price|money }}{% else %}{{ fragrance.starting_price|money }}{% endif %}</strong>
+      </div>
+      <a class="button product-hero__cta" href="#available-sizes">Choose size</a>
+    </div>
+  </section>
+
+  <section class="scent-profile reveal" data-reveal>
+    <div class="scent-profile__heading">
+      <p class="section-kicker">Scent Profile</p>
+    </div>
+    <div class="scent-profile__grid">
+      <article class="scent-profile__item">
+        <span class="scent-profile__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false">
+            <circle cx="12" cy="12" r="3.5"></circle>
+            <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"></path>
+          </svg>
+        </span>
+        <p class="section-kicker">Top</p>
+        <div class="scent-profile__notes">
+        {% for note in fragrance.top_notes %}
+          <span>{{ note }}</span>
+        {% else %}
+          <span>Opening accord</span>
+        {% endfor %}
+        </div>
+      </article>
+      <article class="scent-profile__item">
+        <span class="scent-profile__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false">
+            <path d="M12 20s-7-4.4-7-10.2A4.2 4.2 0 0 1 12 6a4.2 4.2 0 0 1 7 3.8C19 15.6 12 20 12 20Z"></path>
+          </svg>
+        </span>
+        <p class="section-kicker">Heart</p>
+        <div class="scent-profile__notes">
+        {% for note in fragrance.heart_notes %}
+          <span>{{ note }}</span>
+        {% else %}
+          <span>Middle accord</span>
+        {% endfor %}
+        </div>
+      </article>
+      <article class="scent-profile__item">
+        <span class="scent-profile__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false">
+            <path d="M12 3v18M12 12c-3.6 0-6-1.7-7.5-4.7M12 12c3.6 0 6-1.7 7.5-4.7M12 17c-2.8 0-4.7.9-6.2 2.7M12 17c2.8 0 4.7.9 6.2 2.7"></path>
+          </svg>
+        </span>
+        <p class="section-kicker">Base</p>
+        <div class="scent-profile__notes">
+        {% for note in fragrance.base_notes %}
+          <span>{{ note }}</span>
+        {% else %}
+          <span>Drydown accord</span>
+        {% endfor %}
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="wear-profile reveal" data-reveal>
+    <div class="wear-profile__intro">
+      <p class="section-kicker">Wear Profile</p>
+      <p>Estimated from concentration and scent structure. Use it as a buying cue, not a laboratory claim.</p>
+    </div>
+    <div class="wear-profile__bars">
+      <div class="wear-profile__bar" style="--profile-score: {{ longevity_score }}%;">
+        <div class="wear-profile__label">
+          <span>Longevity</span>
+          <strong>{% if longevity_score >= 85 %}Long lasting{% elif longevity_score >= 70 %}All day{% else %}Fresh wear{% endif %}</strong>
+        </div>
+        <div class="wear-profile__meter" aria-hidden="true">
+          {% for tick in range(1, 11) %}
+            <i class="{% if tick <= ((longevity_score / 10)|round(0, 'ceil')|int) %}is-active{% endif %}"></i>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="wear-profile__bar" style="--profile-score: {{ sillage_score }}%;">
+        <div class="wear-profile__label">
+          <span>Sillage</span>
+          <strong>{% if sillage_score >= 72 %}Pronounced{% elif sillage_score >= 55 %}Noticeable{% else %}Close to skin{% endif %}</strong>
+        </div>
+        <div class="wear-profile__meter" aria-hidden="true">
+          {% for tick in range(1, 11) %}
+            <i class="{% if tick <= ((sillage_score / 10)|round(0, 'ceil')|int) %}is-active{% endif %}"></i>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="wear-profile__bar" style="--profile-score: {{ projection_score }}%;">
+        <div class="wear-profile__label">
+          <span>Projection</span>
+          <strong>{% if projection_score >= 68 %}Radiant{% elif projection_score >= 52 %}Balanced{% else %}Intimate{% endif %}</strong>
+        </div>
+        <div class="wear-profile__meter" aria-hidden="true">
+          {% for tick in range(1, 11) %}
+            <i class="{% if tick <= ((projection_score / 10)|round(0, 'ceil')|int) %}is-active{% endif %}"></i>
+          {% endfor %}
+        </div>
       </div>
     </div>
   </section>
 
-  <section class="notes-grid">
-    <article class="note-card reveal" data-reveal>
-      <p class="section-kicker">Top Notes</p>
-      <div class="note-tags">
-        {% for note in fragrance.top_notes %}
-          <span>{{ note }}</span>
-        {% endfor %}
-      </div>
-    </article>
-    <article class="note-card reveal" data-reveal>
-      <p class="section-kicker">Middle Notes</p>
-      <div class="note-tags">
-        {% for note in fragrance.heart_notes %}
-          <span>{{ note }}</span>
-        {% endfor %}
-      </div>
-    </article>
-    <article class="note-card reveal" data-reveal>
-      <p class="section-kicker">Base Notes</p>
-      <div class="note-tags">
-        {% for note in fragrance.base_notes %}
-          <span>{{ note }}</span>
-        {% endfor %}
-      </div>
-    </article>
-  </section>
-
-  <section class="offer-section">
+  <section class="offer-section product-offers" id="available-sizes">
     <div class="section-heading section-heading--center">
       <p class="section-kicker">Available Sizes</p>
     </div>
     <div class="offer-grid">
       {% for variant in fragrance.variants %}
         <article class="offer-card reveal" data-reveal>
-          <span class="offer-card__badge">{{ variant.badge }}</span>
+          {% if variant.badge and variant.badge|lower != "imported" %}
+            <span class="offer-card__badge">{{ variant.badge }}</span>
+          {% endif %}
           <h3>{{ variant.size_label }}</h3>
           <div class="offer-card__row">
             <strong>{{ variant.price_inr|money }}</strong>
-            <span>{{ variant.stock_units }} in stock</span>
+            <span>{% if variant.stock_units <= 2 %}{% else %}Limited Edition{% endif %}</span>
           </div>
           <button
             type="button"
