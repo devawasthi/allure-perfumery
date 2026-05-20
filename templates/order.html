@@ -42,6 +42,14 @@
       {% if order.delivery_notes %}
         <p class="order-card__notes"><strong>Note:</strong> {{ order.delivery_notes }}</p>
       {% endif %}
+      {% if order.courier_name or order.tracking_number or order.tracking_url %}
+        <p class="order-card__notes">
+          <strong>Tracking:</strong>
+          {{ order.courier_name or "Courier updating soon" }}
+          {% if order.tracking_number %} &middot; {{ order.tracking_number }}{% endif %}
+          {% if order.tracking_url %}<br /><a href="{{ order.tracking_url }}" target="_blank" rel="noopener">Track shipment</a>{% endif %}
+        </p>
+      {% endif %}
     </article>
   </section>
 

@@ -343,6 +343,15 @@ class Database:
                 initiated_at TEXT NOT NULL DEFAULT '',
                 paid_at TEXT NOT NULL DEFAULT '',
                 notification_sent_at TEXT NOT NULL DEFAULT '',
+                status_updated_at TEXT NOT NULL DEFAULT '',
+                status_notification_sent_at TEXT NOT NULL DEFAULT '',
+                courier_name TEXT NOT NULL DEFAULT '',
+                tracking_number TEXT NOT NULL DEFAULT '',
+                tracking_url TEXT NOT NULL DEFAULT '',
+                admin_notes TEXT NOT NULL DEFAULT '',
+                shipped_at TEXT NOT NULL DEFAULT '',
+                delivered_at TEXT NOT NULL DEFAULT '',
+                cancelled_at TEXT NOT NULL DEFAULT '',
                 last_error TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL
             )
@@ -476,6 +485,15 @@ class Database:
                 initiated_at TEXT NOT NULL DEFAULT '',
                 paid_at TEXT NOT NULL DEFAULT '',
                 notification_sent_at TEXT NOT NULL DEFAULT '',
+                status_updated_at TEXT NOT NULL DEFAULT '',
+                status_notification_sent_at TEXT NOT NULL DEFAULT '',
+                courier_name TEXT NOT NULL DEFAULT '',
+                tracking_number TEXT NOT NULL DEFAULT '',
+                tracking_url TEXT NOT NULL DEFAULT '',
+                admin_notes TEXT NOT NULL DEFAULT '',
+                shipped_at TEXT NOT NULL DEFAULT '',
+                delivered_at TEXT NOT NULL DEFAULT '',
+                cancelled_at TEXT NOT NULL DEFAULT '',
                 last_error TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL
             )
@@ -553,6 +571,15 @@ class Database:
                 "initiated_at": "TEXT NOT NULL DEFAULT ''",
                 "paid_at": "TEXT NOT NULL DEFAULT ''",
                 "notification_sent_at": "TEXT NOT NULL DEFAULT ''",
+                "status_updated_at": "TEXT NOT NULL DEFAULT ''",
+                "status_notification_sent_at": "TEXT NOT NULL DEFAULT ''",
+                "courier_name": "TEXT NOT NULL DEFAULT ''",
+                "tracking_number": "TEXT NOT NULL DEFAULT ''",
+                "tracking_url": "TEXT NOT NULL DEFAULT ''",
+                "admin_notes": "TEXT NOT NULL DEFAULT ''",
+                "shipped_at": "TEXT NOT NULL DEFAULT ''",
+                "delivered_at": "TEXT NOT NULL DEFAULT ''",
+                "cancelled_at": "TEXT NOT NULL DEFAULT ''",
                 "last_error": "TEXT NOT NULL DEFAULT ''",
             },
         )
@@ -2290,12 +2317,14 @@ class Database:
 
     def list_orders(self, limit: int = 100) -> list[dict[str, Any]]:
         self.expire_stale_reservations()
+        limit = max(1, int(limit or 100))
         with self.connect() as conn:
             rows = conn.execute(
                 """
                 SELECT order_number, customer_name, email, phone, total_inr, item_count,
                        status, payment_method, payment_status, stock_reserved,
-                       reservation_expires_at, created_at
+                       reservation_expires_at, courier_name, tracking_number, tracking_url,
+                       status_updated_at, created_at
                 FROM orders
                 ORDER BY created_at DESC
                 LIMIT ?
@@ -2344,7 +2373,7 @@ class Database:
                 raise
         return expired_count
 
-    def update_order_status(self, order_number: str, status: str) -> dict[str, Any]:
+    def update_order_status(self, order_number: str, status: str | dict[str, Any]) -> dict[str, Any]:
         allowed_statuses = {
             "Pending Payment",
             "Confirmed",
@@ -2354,8 +2383,25 @@ class Database:
             "Cancelled",
             "Review Required",
         }
-        if status not in allowed_statuses:
+        if isinstance(status, dict):
+            fields = status
+            status_value = self._clean_text(fields.get("status"))
+            courier_name = self._clean_text(fields.get("courier_name"))
+            tracking_number = self._clean_text(fields.get("tracking_number"))
+            tracking_url = self._clean_text(fields.get("tracking_url"))
+            admin_notes = self._clean_text(fields.get("admin_notes"))
+        else:
+            fields = {}
+            status_value = self._clean_text(status)
+            courier_name = ""
+            tracking_number = ""
+            tracking_url = ""
+            admin_notes = ""
+
+        if status_value not in allowed_statuses:
             raise ValidationError("Unsupported order status.")
+        if tracking_url and not tracking_url.startswith(("https://", "http://")):
+            raise ValidationError("Tracking URL must start with http:// or https://.")
 
         with self.connect() as conn:
             try:
@@ -2367,7 +2413,19 @@ class Database:
                 if order_row is None:
                     raise ValidationError("Order not found.")
                 order = dict(order_row)
-                if status == "Cancelled" and order["payment_status"] != "paid":
+                now = self._now()
+                shipped_at = order.get("shipped_at", "")
+                delivered_at = order.get("delivered_at", "")
+                cancelled_at = order.get("cancelled_at", "")
+                if status_value == "Shipped" and not shipped_at:
+                    shipped_at = now
+                if status_value == "Delivered" and not delivered_at:
+                    delivered_at = now
+                    shipped_at = shipped_at or now
+                if status_value == "Cancelled" and not cancelled_at:
+                    cancelled_at = now
+
+                if status_value == "Cancelled" and order["payment_status"] != "paid":
                     self._release_reserved_stock(conn, order)
                     conn.execute(
                         """
@@ -2375,13 +2433,60 @@ class Database:
                         SET status = ?,
                             payment_status = CASE WHEN payment_status = 'created' THEN 'cancelled' ELSE payment_status END,
                             stock_reserved = 0,
-                            reservation_expires_at = ''
+                            reservation_expires_at = '',
+                            courier_name = ?,
+                            tracking_number = ?,
+                            tracking_url = ?,
+                            admin_notes = ?,
+                            status_updated_at = ?,
+                            status_notification_sent_at = '',
+                            shipped_at = ?,
+                            delivered_at = ?,
+                            cancelled_at = ?
                         WHERE order_number = ?
                         """,
-                        (status, order_number),
+                        (
+                            status_value,
+                            courier_name,
+                            tracking_number,
+                            tracking_url,
+                            admin_notes,
+                            now,
+                            shipped_at,
+                            delivered_at,
+                            cancelled_at,
+                            order_number,
+                        ),
                     )
                 else:
-                    conn.execute("UPDATE orders SET status = ? WHERE order_number = ?", (status, order_number))
+                    conn.execute(
+                        """
+                        UPDATE orders
+                        SET status = ?,
+                            courier_name = ?,
+                            tracking_number = ?,
+                            tracking_url = ?,
+                            admin_notes = ?,
+                            status_updated_at = ?,
+                            status_notification_sent_at = '',
+                            shipped_at = ?,
+                            delivered_at = ?,
+                            cancelled_at = ?
+                        WHERE order_number = ?
+                        """,
+                        (
+                            status_value,
+                            courier_name,
+                            tracking_number,
+                            tracking_url,
+                            admin_notes,
+                            now,
+                            shipped_at,
+                            delivered_at,
+                            cancelled_at,
+                            order_number,
+                        ),
+                    )
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -2403,6 +2508,74 @@ class Database:
                 (self._now(), order_number),
             )
             conn.commit()
+
+    def mark_order_status_notified(self, order_number: str) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE orders
+                SET status_notification_sent_at = ?
+                WHERE order_number = ? AND status_notification_sent_at = ''
+                """,
+                (self._now(), order_number),
+            )
+            conn.commit()
+
+    def get_readiness_metrics(self) -> dict[str, int]:
+        self.expire_stale_reservations()
+        with self.connect() as conn:
+            fragrance_row = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS active_fragrances,
+                    SUM(CASE WHEN image_url LIKE '/artwork/%' THEN 1 ELSE 0 END) AS placeholder_images,
+                    SUM(CASE WHEN image_url = '' OR image_url IS NULL THEN 1 ELSE 0 END) AS missing_images
+                FROM fragrances
+                WHERE is_active = 1
+                """
+            ).fetchone()
+            variant_row = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS active_variants,
+                    SUM(CASE WHEN stock_units <= 0 THEN 1 ELSE 0 END) AS out_of_stock_variants,
+                    SUM(CASE WHEN stock_units > 0 AND stock_units <= 2 THEN 1 ELSE 0 END) AS low_stock_variants
+                FROM variants v
+                JOIN fragrances f ON f.id = v.fragrance_id
+                WHERE f.is_active = 1
+                """
+            ).fetchone()
+            no_variant_row = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM fragrances f
+                WHERE f.is_active = 1
+                  AND NOT EXISTS (SELECT 1 FROM variants v WHERE v.fragrance_id = f.id)
+                """
+            ).fetchone()
+            review_row = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM orders
+                WHERE status = 'Review Required'
+                   OR payment_status IN ('created', 'failed')
+                """
+            ).fetchone()
+
+        fragrance = dict(fragrance_row or {})
+        variant = dict(variant_row or {})
+        no_variant = dict(no_variant_row or {})
+        review = dict(review_row or {})
+        return {
+            "active_fragrances": int(fragrance.get("active_fragrances") or 0),
+            "placeholder_images": int(fragrance.get("placeholder_images") or 0),
+            "missing_images": int(fragrance.get("missing_images") or 0),
+            "active_variants": int(variant.get("active_variants") or 0),
+            "out_of_stock_variants": int(variant.get("out_of_stock_variants") or 0),
+            "low_stock_variants": int(variant.get("low_stock_variants") or 0),
+            "fragrances_without_variants": int(no_variant.get("count") or 0),
+            "orders_requiring_attention": int(review.get("count") or 0),
+        }
 
     def get_order(self, order_number: str) -> dict[str, Any] | None:
         with self.connect() as conn:

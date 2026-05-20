@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="utility-hero">
+    <p class="section-kicker">Admin Inventory</p>
+    <h1>Import fragrances</h1>
+    <p>Upload a CSV to create or update products, images, prices, and stock in one pass.</p>
+  </section>
+
+  <section class="admin-toolbar">
+    <a class="button button--ghost" href="/admin/fragrances">Back to inventory</a>
+    <a class="button button--ghost" href="/admin/fragrances/import-template.csv">Download template</a>
+    <a class="button button--ghost" href="/admin">Dashboard</a>
+  </section>
+
+  <section class="order-card order-card--full admin-import-panel">
+    <div class="admin-section-head">
+      <div>
+        <p class="section-kicker">Bulk upload</p>
+        <h2>CSV product import</h2>
+      </div>
+      <span class="admin-status is-live">Upsert</span>
+    </div>
+
+    {% if error %}
+      <p class="checkout-form__status is-error">{{ error }}</p>
+    {% endif %}
+
+    {% if result %}
+      <div class="admin-import-summary">
+        <article>
+          <span>Rows read</span>
+          <strong>{{ result.rows }}</strong>
+        </article>
+        <article>
+          <span>Products created</span>
+          <strong>{{ result.created }}</strong>
+        </article>
+        <article>
+          <span>Products updated</span>
+          <strong>{{ result.updated }}</strong>
+        </article>
+        <article>
+          <span>Variants created</span>
+          <strong>{{ result.variants_created }}</strong>
+        </article>
+        <article>
+          <span>Variants updated</span>
+          <strong>{{ result.variants_updated }}</strong>
+        </article>
+      </div>
+
+      {% if result.errors %}
+        <div class="admin-import-errors">
+          <p class="section-kicker">Rows skipped</p>
+          {% for item in result.errors %}
+            <p><strong>Row {{ item.row }}:</strong> {{ item.message }}</p>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="checkout-form__status">Import finished with no skipped rows.</p>
+      {% endif %}
+    {% endif %}
+
+    <form class="checkout-form admin-import-form" action="/admin/fragrances/import" method="post" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <label>
+        CSV file
+        <input type="file" name="catalog_csv" accept=".csv,text/csv" required />
+      </label>
+      <p class="checkout-form__status">
+        Use one row per buying option. Repeat product columns for multiple sizes of the same fragrance.
+      </p>
+      <div class="checkout-form__actions">
+        <button class="button" type="submit">Upload CSV</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="order-card order-card--full">
+    <div class="admin-section-head">
+      <div>
+        <p class="section-kicker">Expected columns</p>
+        <h2>CSV structure</h2>
+      </div>
+    </div>
+    <div class="admin-column-list">
+      {% for column in csv_columns %}
+        <code>{{ column }}</code>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

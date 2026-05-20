@@ -60,6 +60,9 @@ class Settings:
     smtp_username: str
     smtp_password: str
     smtp_use_tls: bool
+    support_email: str
+    support_phone: str
+    business_address: str
     ai_concierge_enabled: bool
     openai_api_key: str
     openai_model: str
@@ -121,7 +124,7 @@ def load_settings() -> Settings:
         database_statement_timeout_ms=int(os.getenv("DATABASE_STATEMENT_TIMEOUT_MS", "5000")),
         sqlite_database_path=os.getenv("SQLITE_DATABASE_PATH", "data/perfumery.sqlite3").strip(),
         sqlite_busy_timeout_ms=int(os.getenv("SQLITE_BUSY_TIMEOUT_MS", "5000")),
-        max_request_body_bytes=int(os.getenv("MAX_REQUEST_BODY_BYTES", "262144")),
+        max_request_body_bytes=int(os.getenv("MAX_REQUEST_BODY_BYTES", "5242880")),
         static_cache_max_age_seconds=int(os.getenv("STATIC_CACHE_MAX_AGE_SECONDS", "86400")),
         auto_seed_catalog=env_flag("AUTO_SEED_CATALOG", False),
         razorpay_key_id=os.getenv("RAZORPAY_KEY_ID", "").strip(),
@@ -137,6 +140,9 @@ def load_settings() -> Settings:
         smtp_username=os.getenv("SMTP_USERNAME", "").strip(),
         smtp_password=os.getenv("SMTP_PASSWORD", "").strip(),
         smtp_use_tls=env_flag("SMTP_USE_TLS", True),
+        support_email=os.getenv("SUPPORT_EMAIL", "").strip(),
+        support_phone=os.getenv("SUPPORT_PHONE", "").strip(),
+        business_address=os.getenv("BUSINESS_ADDRESS", "").strip(),
         ai_concierge_enabled=env_flag("AI_CONCIERGE_ENABLED", True),
         openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
         openai_model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip() or "gpt-4.1-mini",

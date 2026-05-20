@@ -45,6 +45,26 @@
             {% endfor %}
           </select>
         </label>
+        <label>
+          Courier
+          <input name="courier_name" value="{{ order.courier_name }}" placeholder="Blue Dart, Delhivery, etc." />
+        </label>
+        <label>
+          Tracking number
+          <input name="tracking_number" value="{{ order.tracking_number }}" />
+        </label>
+        <label>
+          Tracking URL
+          <input name="tracking_url" value="{{ order.tracking_url }}" placeholder="https://..." />
+        </label>
+        <label>
+          Admin notes
+          <textarea name="admin_notes" rows="3">{{ order.admin_notes }}</textarea>
+        </label>
+        <label class="admin-inline-check">
+          <input type="checkbox" name="notify_customer" checked />
+          Email customer about this update
+        </label>
         <button class="button" type="submit">Update status</button>
       </form>
       <p class="order-card__address">
@@ -53,6 +73,16 @@
       </p>
       {% if order.delivery_notes %}
         <p class="order-card__notes"><strong>Note:</strong> {{ order.delivery_notes }}</p>
+      {% endif %}
+      {% if order.courier_name or order.tracking_number or order.tracking_url %}
+        <p class="order-card__notes">
+          <strong>Tracking:</strong>
+          {{ order.courier_name }}{% if order.tracking_number %} &middot; {{ order.tracking_number }}{% endif %}
+          {% if order.tracking_url %}<br /><a href="{{ order.tracking_url }}" target="_blank" rel="noopener">Open tracking link</a>{% endif %}
+        </p>
+      {% endif %}
+      {% if order.admin_notes %}
+        <p class="order-card__notes"><strong>Internal:</strong> {{ order.admin_notes }}</p>
       {% endif %}
     </article>
   </section>

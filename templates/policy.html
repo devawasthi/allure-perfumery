@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="utility-hero policy-hero">
+    <p class="section-kicker">{{ policy.kicker }}</p>
+    <h1>{{ policy.title }}</h1>
+    <p>{{ policy.intro }}</p>
+  </section>
+
+  <section class="policy-grid">
+    {% for title, body in policy.sections %}
+      <article class="order-card">
+        <p class="section-kicker">{{ title }}</p>
+        <p class="footer-copy">{{ body }}</p>
+      </article>
+    {% endfor %}
+  </section>
+{% endblock %}

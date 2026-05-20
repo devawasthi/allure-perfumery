@@ -837,10 +837,12 @@ function mountSmartHeader() {
   let isCondensed = false;
   let isNavHidden = false;
   let lastScrollY = Math.max(window.scrollY, 0);
+  let scrollIntent = 0;
+  let lastDirection = 0;
 
   function setHeaderMetrics() {
     const navHeight = nav?.offsetHeight || header.offsetHeight || 0;
-    const announcementHeight = isCondensed ? 0 : announcement?.scrollHeight || 0;
+    const announcementHeight = isCondensed || isNavHidden ? 0 : announcement?.scrollHeight || 0;
     const visibleHeight = isNavHidden ? 0 : navHeight + announcementHeight;
     const visibleOffset = isNavHidden ? 16 : Math.max(72, visibleHeight + 12);
     document.documentElement.style.setProperty("--site-header-height", `${visibleHeight}px`);
@@ -870,18 +872,38 @@ function mountSmartHeader() {
     ticking = false;
     const currentScrollY = Math.max(window.scrollY, 0);
     const scrollDelta = currentScrollY - lastScrollY;
+    const absDelta = Math.abs(scrollDelta);
     const isSearchOpen = document.body.classList.contains("search-focus-open");
     const hasOpenMenu = Boolean(header.querySelector(".nav-item--mega.is-open"));
 
     header.classList.toggle("is-glass", currentScrollY > 12);
-    setCondensed(!isSearchOpen && currentScrollY > 8);
 
-    if (isSearchOpen || hasOpenMenu || currentScrollY <= 8) {
+    if (isSearchOpen || hasOpenMenu || currentScrollY <= 12) {
+      scrollIntent = 0;
+      lastDirection = 0;
+      setCondensed(false);
       setNavHidden(false);
-    } else if (scrollDelta > 14 && currentScrollY > 120) {
-      setNavHidden(true);
-    } else if (scrollDelta < -4) {
-      setNavHidden(false);
+      lastScrollY = currentScrollY;
+      return;
+    }
+
+    setCondensed(currentScrollY > 42);
+
+    if (absDelta >= 3) {
+      const direction = scrollDelta > 0 ? 1 : -1;
+      if (direction !== lastDirection) {
+        scrollIntent = 0;
+        lastDirection = direction;
+      }
+      scrollIntent += absDelta;
+
+      if (direction > 0 && currentScrollY > 140 && scrollIntent > 42) {
+        setNavHidden(true);
+        scrollIntent = 0;
+      } else if (direction < 0 && scrollIntent > 34) {
+        setNavHidden(false);
+        scrollIntent = 0;
+      }
     }
 
     lastScrollY = currentScrollY;

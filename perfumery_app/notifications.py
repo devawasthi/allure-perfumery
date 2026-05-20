@@ -37,6 +37,21 @@ class OrderNotifier:
             delivered = self._send(self.settings.admin_email, admin_subject, self._admin_body(order)) and delivered
         return delivered
 
+    def send_order_status_update(self, order: dict[str, Any]) -> bool:
+        if not self.enabled:
+            logger.info("Order status notification skipped because SMTP is not configured.")
+            return False
+
+        subject = f"The Scentist order {order['order_number']} is {order['status']}"
+        delivered = self._send(order["email"], subject, self._status_body(order))
+        if self.settings.admin_email:
+            delivered = self._send(
+                self.settings.admin_email,
+                f"Status updated: {order['order_number']} - {order['status']}",
+                self._admin_body(order),
+            ) and delivered
+        return delivered
+
     def _send(self, recipient: str, subject: str, body: str) -> bool:
         message = EmailMessage()
         message["From"] = self.settings.notification_from_email
@@ -96,3 +111,24 @@ class OrderNotifier:
                 f"- {item['brand']} {item['fragrance_name']} / {item['size_label']} x {item['quantity']}"
             )
         return "\n".join(line for line in lines if line != "")
+
+    def _status_body(self, order: dict[str, Any]) -> str:
+        lines = [
+            f"Hello {order['customer_name']},",
+            "",
+            f"Your order {order['order_number']} is now: {order['status']}.",
+            f"Total: INR {order['total_inr']:,}",
+        ]
+        if order.get("courier_name") or order.get("tracking_number"):
+            lines.extend(
+                [
+                    "",
+                    "Tracking:",
+                    f"Courier: {order.get('courier_name') or 'To be updated'}",
+                    f"Tracking number: {order.get('tracking_number') or 'To be updated'}",
+                ]
+            )
+        if order.get("tracking_url"):
+            lines.append(f"Tracking link: {order['tracking_url']}")
+        lines.extend(["", "Thank you,", "The Scentist"])
+        return "\n".join(lines)

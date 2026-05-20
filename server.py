@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import csv
+import io
 import hashlib
 import hmac
 import json
 import logging
 import mimetypes
 import os
+import re
 import secrets
 import time
 from dataclasses import dataclass, field
+from email.parser import BytesParser
+from email.policy import default as email_policy
 from http import HTTPStatus
 from pathlib import Path
 from socketserver import ThreadingMixIn
@@ -18,6 +23,7 @@ from wsgiref.simple_server import WSGIRequestHandler, WSGIServer, make_server
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from perfumery_app.artwork import build_fragrance_artwork
+from perfumery_app.catalog_seed import slugify
 from perfumery_app.concierge import ScentConcierge
 from perfumery_app.config import load_settings
 from perfumery_app.database import Database, ValidationError
@@ -122,6 +128,13 @@ def notify_order_once(order: dict) -> None:
         return
     if notifier.send_order_received(order):
         db.mark_order_notified(order["order_number"])
+
+
+def notify_order_status_once(order: dict) -> None:
+    if order.get("status_notification_sent_at"):
+        return
+    if notifier.send_order_status_update(order):
+        db.mark_order_status_notified(order["order_number"])
 
 
 def first_value(query: dict[str, list[str]], key: str) -> str:
@@ -393,6 +406,21 @@ class PerfumeryApplication:
             }
             return self.html_response(render_template("admin_orders.html", context))
 
+        if path == "/admin/orders/export.csv":
+            if not self.is_admin_request(request):
+                return self.redirect_response("/admin/login")
+            return self.admin_orders_export_response()
+
+        if path == "/admin/readiness":
+            if not self.is_admin_request(request):
+                return self.redirect_response("/admin/login")
+            context = {
+                **self.get_site_context(path, request),
+                "page_title": "Production readiness",
+                "readiness": self.build_readiness_report(),
+            }
+            return self.html_response(render_template("admin_readiness.html", context))
+
         if path == "/admin/fragrances":
             if not self.is_admin_request(request):
                 return self.redirect_response("/admin/login")
@@ -410,6 +438,64 @@ class PerfumeryApplication:
                 "csrf_token": self.admin_csrf_token(request),
             }
             return self.html_response(render_template("admin_fragrances.html", context))
+
+        if path == "/admin/fragrances/import":
+            if not self.is_admin_request(request):
+                return self.redirect_response("/admin/login")
+            context = {
+                **self.get_site_context(path, request),
+                "page_title": "Import fragrances",
+                "csrf_token": self.admin_csrf_token(request),
+                "result": None,
+                "error": "",
+                "csv_columns": self.admin_import_csv_columns(),
+            }
+            return self.html_response(render_template("admin_fragrance_import.html", context))
+
+        if path == "/admin/fragrances/import-template.csv":
+            if not self.is_admin_request(request):
+                return self.redirect_response("/admin/login")
+            output = io.StringIO()
+            writer = csv.DictWriter(output, fieldnames=self.admin_import_csv_columns())
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "slug": "creed-aventus-100ml",
+                    "brand": "Creed",
+                    "name": "Aventus",
+                    "collection_type": "niche",
+                    "gender": "him",
+                    "family": "woody fruity",
+                    "concentration": "Eau de Parfum",
+                    "origin": "Imported",
+                    "description": "A bright pineapple, birch, and musk signature.",
+                    "signature": "A decisive modern classic.",
+                    "top_notes": "Pineapple, Bergamot, Blackcurrant",
+                    "heart_notes": "Birch, Jasmine, Patchouli",
+                    "base_notes": "Musk, Oakmoss, Ambergris",
+                    "image_url": "https://example.com/aventus.jpg",
+                    "photo_icon_url": "",
+                    "artwork_kind": "photo",
+                    "bottle_size_ml": "100",
+                    "featured": "false",
+                    "rank": "999",
+                    "is_active": "true",
+                    "sku": "creed-aventus-retail-100",
+                    "sale_type": "retail",
+                    "size_label": "100 ML RETAIL",
+                    "size_ml": "100",
+                    "price_inr": "28900",
+                    "compare_at_price_inr": "0",
+                    "stock_units": "2",
+                    "badge": "Last Units Available",
+                    "statement": "Full presentation bottle.",
+                }
+            )
+            return self.bytes_response(
+                output.getvalue().encode("utf-8"),
+                content_type="text/csv; charset=utf-8",
+                headers=[("Content-Disposition", 'attachment; filename="the-scentist-import-template.csv"')],
+            )
 
         if path == "/admin/fragrances/new":
             if not self.is_admin_request(request):
@@ -495,6 +581,16 @@ class PerfumeryApplication:
 
         if path.startswith("/api/"):
             return self.json_response({"error": "Unsupported route."}, status=HTTPStatus.NOT_FOUND)
+
+        policy_pages = self.policy_pages()
+        if path in policy_pages:
+            page = policy_pages[path]
+            context = {
+                **self.get_site_context(path, request),
+                "page_title": page["title"],
+                "policy": page,
+            }
+            return self.html_response(render_template("policy.html", context))
 
         if path == "/":
             featured = db.get_featured(9)
@@ -747,6 +843,42 @@ class PerfumeryApplication:
                     status=HTTPStatus.UNPROCESSABLE_ENTITY,
                 )
 
+        if path == "/admin/fragrances/import":
+            if not self.is_admin_request(request):
+                return self.redirect_response("/admin/login")
+            try:
+                fields, files = self.read_multipart_form(request)
+                csrf_error = self.validate_admin_csrf(request, fields)
+                if csrf_error:
+                    return csrf_error
+                upload = files.get("catalog_csv")
+                if not upload or not upload.get("content"):
+                    raise ValidationError("Choose a CSV file to import.")
+                rows = self.parse_admin_import_csv(upload["content"])
+                result = self.import_admin_catalog_rows(rows)
+                context = {
+                    **self.get_site_context(path, request),
+                    "page_title": "Import fragrances",
+                    "csrf_token": self.admin_csrf_token(request),
+                    "result": result,
+                    "error": "",
+                    "csv_columns": self.admin_import_csv_columns(),
+                }
+                return self.html_response(render_template("admin_fragrance_import.html", context))
+            except ValidationError as exc:
+                context = {
+                    **self.get_site_context(path, request),
+                    "page_title": "Import fragrances",
+                    "csrf_token": self.admin_csrf_token(request),
+                    "result": None,
+                    "error": str(exc),
+                    "csv_columns": self.admin_import_csv_columns(),
+                }
+                return self.html_response(
+                    render_template("admin_fragrance_import.html", context),
+                    status=HTTPStatus.UNPROCESSABLE_ENTITY,
+                )
+
         if path.startswith("/admin/fragrances/"):
             if not self.is_admin_request(request):
                 return self.redirect_response("/admin/login")
@@ -811,7 +943,9 @@ class PerfumeryApplication:
                 return csrf_error
             order_number = path.removeprefix("/admin/orders/").removesuffix("/status").strip("/")
             try:
-                db.update_order_status(order_number, fields.get("status", ""))
+                order = db.update_order_status(order_number, fields)
+                if fields.get("notify_customer") == "on":
+                    notify_order_status_once(order)
             except ValidationError as exc:
                 return self.json_response({"error": str(exc)}, status=HTTPStatus.UNPROCESSABLE_ENTITY)
             return self.redirect_response(f"/admin/orders/{order_number}")
@@ -1062,6 +1196,11 @@ class PerfumeryApplication:
             "asset_version": ASSET_VERSION,
             "preview_label": preview_label,
             "site_metrics": metrics,
+            "support": {
+                "email": settings.support_email or settings.admin_email,
+                "phone": settings.support_phone,
+                "business_address": settings.business_address,
+            },
             "payment": {
                 "razorpay_enabled": settings.razorpay_enabled,
                 "razorpay_key_id": settings.razorpay_key_id,
@@ -1118,6 +1257,481 @@ class PerfumeryApplication:
     def read_form_body(self, request: Request) -> dict[str, str]:
         fields = parse_qs(request.body.decode("utf-8"), keep_blank_values=True)
         return {key: values[0] if values else "" for key, values in fields.items()}
+
+    def read_multipart_form(self, request: Request) -> tuple[dict[str, str], dict[str, dict[str, object]]]:
+        content_type = request.headers.get("content-type", "")
+        if "multipart/form-data" not in content_type:
+            raise ValidationError("Expected a multipart form upload.")
+
+        message = BytesParser(policy=email_policy).parsebytes(
+            f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("utf-8")
+            + request.body
+        )
+        if not message.is_multipart():
+            raise ValidationError("Invalid upload payload.")
+
+        fields: dict[str, str] = {}
+        files: dict[str, dict[str, object]] = {}
+        for part in message.iter_parts():
+            if part.get_content_disposition() != "form-data":
+                continue
+            name = part.get_param("name", header="content-disposition")
+            if not name:
+                continue
+            payload = part.get_payload(decode=True) or b""
+            filename = part.get_filename()
+            if filename:
+                files[str(name)] = {
+                    "filename": filename,
+                    "content_type": part.get_content_type(),
+                    "content": payload,
+                }
+            else:
+                charset = part.get_content_charset() or "utf-8"
+                fields[str(name)] = payload.decode(charset, errors="replace")
+        return fields, files
+
+    def admin_import_csv_columns(self) -> list[str]:
+        return [
+            "slug",
+            "brand",
+            "name",
+            "collection_type",
+            "gender",
+            "family",
+            "concentration",
+            "origin",
+            "description",
+            "signature",
+            "top_notes",
+            "heart_notes",
+            "base_notes",
+            "image_url",
+            "photo_icon_url",
+            "artwork_kind",
+            "bottle_size_ml",
+            "featured",
+            "rank",
+            "is_active",
+            "sku",
+            "sale_type",
+            "size_label",
+            "size_ml",
+            "price_inr",
+            "compare_at_price_inr",
+            "stock_units",
+            "badge",
+            "statement",
+        ]
+
+    def parse_admin_import_csv(self, content: bytes) -> list[dict[str, str]]:
+        if len(content) > settings.max_request_body_bytes:
+            raise ValidationError("CSV file is too large for this deployment.")
+        try:
+            text = content.decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise ValidationError("CSV must be UTF-8 encoded.") from exc
+
+        reader = csv.DictReader(io.StringIO(text))
+        if not reader.fieldnames:
+            raise ValidationError("CSV is missing a header row.")
+
+        rows: list[dict[str, str]] = []
+        for row_number, row in enumerate(reader, start=2):
+            normalized = {
+                self.admin_import_column_name(key): str(value or "").strip()
+                for key, value in row.items()
+                if key is not None
+            }
+            if not any(normalized.values()):
+                continue
+            normalized["_row_number"] = str(row_number)
+            rows.append(normalized)
+
+        if not rows:
+            raise ValidationError("CSV did not contain any product rows.")
+        if len(rows) > 5000:
+            raise ValidationError("CSV import is limited to 5,000 rows at a time.")
+        return rows
+
+    def admin_import_column_name(self, value: str) -> str:
+        key = re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower()).strip("_")
+        aliases = {
+            "house": "brand",
+            "brand_name": "brand",
+            "fragrance": "name",
+            "fragrance_name": "name",
+            "product_name": "name",
+            "product_slug": "slug",
+            "collection": "collection_type",
+            "category": "collection_type",
+            "wearer": "gender",
+            "sex": "gender",
+            "scent_family": "family",
+            "olfactive_family": "family",
+            "middle_notes": "heart_notes",
+            "mid_notes": "heart_notes",
+            "main_image": "image_url",
+            "image": "image_url",
+            "photo": "image_url",
+            "icon": "photo_icon_url",
+            "active": "is_active",
+            "visible": "is_active",
+            "variant_sku": "sku",
+            "format": "sale_type",
+            "type": "sale_type",
+            "price": "price_inr",
+            "mrp": "compare_at_price_inr",
+            "compare_at": "compare_at_price_inr",
+            "stock": "stock_units",
+            "quantity": "stock_units",
+        }
+        return aliases.get(key, key)
+
+    def import_admin_catalog_rows(self, rows: list[dict[str, str]]) -> dict[str, object]:
+        result: dict[str, object] = {
+            "rows": len(rows),
+            "created": 0,
+            "updated": 0,
+            "variants_created": 0,
+            "variants_updated": 0,
+            "errors": [],
+        }
+        errors: list[dict[str, str]] = []
+        counted_product_slugs: set[str] = set()
+
+        for row in rows:
+            row_number = row.get("_row_number", "?")
+            try:
+                product_fields = self.admin_import_product_fields(row)
+                import_slug = slugify(product_fields.get("slug") or f"{product_fields.get('brand')} {product_fields.get('name')}")
+                existing = db.get_admin_fragrance(import_slug) if import_slug else None
+                saved = db.save_admin_fragrance(
+                    product_fields,
+                    current_slug=existing["slug"] if existing else None,
+                )
+                if saved["slug"] not in counted_product_slugs:
+                    result["updated" if existing else "created"] = int(result["updated" if existing else "created"]) + 1
+                    counted_product_slugs.add(saved["slug"])
+
+                if self.admin_import_has_variant(row):
+                    variant_fields = self.admin_import_variant_fields(row, saved["slug"])
+                    variant_sku = slugify(
+                        variant_fields.get("sku")
+                        or f"{saved['slug']}-{variant_fields.get('sale_type')}-{variant_fields.get('size_ml')}"
+                    )
+                    refreshed = db.get_admin_fragrance(saved["slug"]) or saved
+                    existing_variant = next(
+                        (variant for variant in refreshed.get("variants", []) if variant.get("sku") == variant_sku),
+                        None,
+                    )
+                    if existing_variant:
+                        variant_fields["variant_id"] = str(existing_variant["id"])
+                    db.save_admin_variant(saved["slug"], variant_fields)
+                    key = "variants_updated" if existing_variant else "variants_created"
+                    result[key] = int(result[key]) + 1
+            except ValidationError as exc:
+                errors.append({"row": row_number, "message": str(exc)})
+
+        result["errors"] = errors
+        return result
+
+    def admin_import_product_fields(self, row: dict[str, str]) -> dict[str, str]:
+        brand = row.get("brand", "")
+        name = row.get("name", "")
+        image_url = row.get("image_url", "")
+        is_active = self.admin_import_bool(row.get("is_active"), default=True)
+        if is_active and not image_url:
+            raise ValidationError("Image URL is required for active CSV products.")
+
+        collection_type = self.admin_import_choice(
+            row.get("collection_type"),
+            {"niche", "designer"},
+            default="niche",
+        )
+        gender = self.admin_import_gender(row.get("gender"))
+
+        return {
+            "slug": row.get("slug", ""),
+            "brand": brand,
+            "name": name,
+            "collection_type": collection_type,
+            "gender": gender,
+            "family": row.get("family", ""),
+            "concentration": row.get("concentration", "Eau de Parfum"),
+            "origin": row.get("origin", "Imported"),
+            "description": row.get("description", ""),
+            "signature": row.get("signature", ""),
+            "top_notes": row.get("top_notes", ""),
+            "heart_notes": row.get("heart_notes", ""),
+            "base_notes": row.get("base_notes", ""),
+            "accent_from": row.get("accent_from", "#c2b4a3"),
+            "accent_to": row.get("accent_to", "#17120f"),
+            "image_url": image_url,
+            "photo_icon_url": row.get("photo_icon_url", ""),
+            "artwork_kind": row.get("artwork_kind", "photo") or "photo",
+            "bottle_size_ml": row.get("bottle_size_ml", "100"),
+            "featured": "on" if self.admin_import_bool(row.get("featured"), default=False) else "",
+            "rank": row.get("rank", "999"),
+            "is_active": "on" if is_active else "",
+        }
+
+    def admin_import_has_variant(self, row: dict[str, str]) -> bool:
+        return any(
+            row.get(key, "")
+            for key in ("sku", "sale_type", "size_label", "size_ml", "price_inr", "stock_units")
+        )
+
+    def admin_import_variant_fields(self, row: dict[str, str], fragrance_slug: str) -> dict[str, str]:
+        sale_type = self.admin_import_sale_type(row.get("sale_type"))
+        size_ml = row.get("size_ml", "100")
+        sku = row.get("sku") or f"{fragrance_slug}-{sale_type}-{size_ml}"
+        return {
+            "sku": sku,
+            "sale_type": sale_type,
+            "size_label": row.get("size_label") or f"{size_ml} ML",
+            "size_ml": size_ml,
+            "price_inr": row.get("price_inr", ""),
+            "compare_at_price_inr": row.get("compare_at_price_inr", "0"),
+            "stock_units": row.get("stock_units", "0"),
+            "badge": row.get("badge", ""),
+            "statement": row.get("statement", ""),
+        }
+
+    def admin_import_bool(self, value: str, *, default: bool) -> bool:
+        clean = str(value or "").strip().lower()
+        if not clean:
+            return default
+        if clean in {"1", "true", "yes", "y", "on", "active", "visible", "live"}:
+            return True
+        if clean in {"0", "false", "no", "n", "off", "archived", "hidden", "inactive"}:
+            return False
+        return default
+
+    def admin_import_choice(self, value: str, choices: set[str], *, default: str) -> str:
+        clean = str(value or "").strip().lower().replace(" ", "_").replace("-", "_")
+        return clean if clean in choices else default
+
+    def admin_import_gender(self, value: str) -> str:
+        clean = str(value or "").strip().lower()
+        if clean in {"men", "male", "man", "for_him", "for him"}:
+            return "him"
+        if clean in {"women", "female", "woman", "for_her", "for her"}:
+            return "her"
+        if clean in {"him", "her", "unisex"}:
+            return clean
+        return "unisex"
+
+    def admin_import_sale_type(self, value: str) -> str:
+        clean = str(value or "").strip().lower().replace(" ", "_").replace("-", "_")
+        if clean in {"retail_bottle", "bottle", "full_bottle", "retail"}:
+            return "retail"
+        if clean in {"decants", "decant"}:
+            return "decant"
+        if clean in {"partials", "partial_bottle", "partial"}:
+            return "partial"
+        if clean in {"testers", "tester"}:
+            return "tester"
+        return "retail"
+
+    def admin_orders_export_response(self) -> Response:
+        orders = [db.get_order(order["order_number"]) for order in db.list_orders(limit=10000)]
+        output = io.StringIO()
+        columns = [
+            "order_number",
+            "created_at",
+            "status",
+            "payment_method",
+            "payment_status",
+            "customer_name",
+            "email",
+            "phone",
+            "subtotal_inr",
+            "shipping_inr",
+            "total_inr",
+            "item_count",
+            "items",
+            "shipping_address",
+            "courier_name",
+            "tracking_number",
+            "tracking_url",
+            "admin_notes",
+            "last_error",
+        ]
+        writer = csv.DictWriter(output, fieldnames=columns)
+        writer.writeheader()
+        for order in (item for item in orders if item):
+            items = "; ".join(
+                f"{line['brand']} {line['fragrance_name']} {line['size_label']} x {line['quantity']}"
+                for line in order["items"]
+            )
+            address = ", ".join(
+                part
+                for part in [
+                    order.get("shipping_line1", ""),
+                    order.get("shipping_line2", ""),
+                    order.get("city", ""),
+                    order.get("state", ""),
+                    order.get("postal_code", ""),
+                    order.get("country", ""),
+                ]
+                if part
+            )
+            writer.writerow(
+                {
+                    "order_number": order["order_number"],
+                    "created_at": order["created_at"],
+                    "status": order["status"],
+                    "payment_method": order["payment_method"],
+                    "payment_status": order["payment_status"],
+                    "customer_name": order["customer_name"],
+                    "email": order["email"],
+                    "phone": order["phone"],
+                    "subtotal_inr": order["subtotal_inr"],
+                    "shipping_inr": order["shipping_inr"],
+                    "total_inr": order["total_inr"],
+                    "item_count": order["item_count"],
+                    "items": items,
+                    "shipping_address": address,
+                    "courier_name": order.get("courier_name", ""),
+                    "tracking_number": order.get("tracking_number", ""),
+                    "tracking_url": order.get("tracking_url", ""),
+                    "admin_notes": order.get("admin_notes", ""),
+                    "last_error": order.get("last_error", ""),
+                }
+            )
+
+        return self.bytes_response(
+            output.getvalue().encode("utf-8"),
+            content_type="text/csv; charset=utf-8",
+            headers=[("Content-Disposition", 'attachment; filename="the-scentist-orders.csv"')],
+        )
+
+    def build_readiness_report(self) -> dict[str, object]:
+        metrics = db.get_readiness_metrics()
+        checks = [
+            self.readiness_check(
+                "PostgreSQL database",
+                settings.database_engine == "postgres",
+                "Production should use Neon/PostgreSQL, not local SQLite.",
+            ),
+            self.readiness_check(
+                "Admin token",
+                bool(settings.admin_token),
+                "Set ADMIN_TOKEN so only you can access operations.",
+            ),
+            self.readiness_check(
+                "Razorpay keys",
+                settings.razorpay_enabled,
+                "Set production RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET before online payments.",
+            ),
+            self.readiness_check(
+                "Razorpay webhook secret",
+                bool(settings.razorpay_webhook_secret),
+                "Set RAZORPAY_WEBHOOK_SECRET and configure the webhook URL in Razorpay.",
+            ),
+            self.readiness_check(
+                "Email notifications",
+                notifier.enabled,
+                "Set SMTP_HOST, NOTIFICATION_FROM_EMAIL, and ADMIN_EMAIL for customer/admin notifications.",
+            ),
+            self.readiness_check(
+                "Support contact",
+                bool(settings.support_email or settings.admin_email),
+                "Set SUPPORT_EMAIL or ADMIN_EMAIL so policy pages have a real support destination.",
+            ),
+            self.readiness_check(
+                "Active catalog",
+                metrics["active_fragrances"] > 0,
+                "Import active fragrances before launch.",
+            ),
+            self.readiness_check(
+                "Real catalog images",
+                metrics["placeholder_images"] == 0 and metrics["missing_images"] == 0,
+                "No active product should use placeholder or missing images.",
+            ),
+            self.readiness_check(
+                "Buying options",
+                metrics["fragrances_without_variants"] == 0 and metrics["active_variants"] > 0,
+                "Every active fragrance needs at least one variant.",
+            ),
+            self.readiness_check(
+                "Order attention queue",
+                metrics["orders_requiring_attention"] == 0,
+                "Resolve failed, pending, or review-required orders before opening sales.",
+            ),
+        ]
+        return {
+            "checks": checks,
+            "ready": all(check["ok"] for check in checks),
+            "metrics": metrics,
+            "webhook_url": f"{settings.base_url or 'https://your-domain.example'}/api/webhooks/razorpay",
+        }
+
+    def readiness_check(self, label: str, ok: bool, action: str) -> dict[str, object]:
+        return {"label": label, "ok": bool(ok), "action": action}
+
+    def policy_pages(self) -> dict[str, dict[str, object]]:
+        support_email = settings.support_email or settings.admin_email or "support@example.com"
+        support_phone = settings.support_phone or "Add SUPPORT_PHONE in production"
+        business_address = settings.business_address or "Add BUSINESS_ADDRESS in production"
+        return {
+            "/shipping-policy": {
+                "title": "Shipping Policy",
+                "kicker": "Shipping",
+                "intro": "How The Scentist packs and ships fragrance orders across India.",
+                "sections": [
+                    ("Dispatch", "Orders are normally prepared within 1-3 business days after confirmation or successful payment."),
+                    ("Delivery", "Delivery timelines depend on the destination and courier partner. Metro deliveries are typically faster than remote locations."),
+                    ("Tracking", "Once shipped, the tracking number and courier details are added to your order and shared by email when notifications are configured."),
+                    ("Support", f"For delivery help, contact {support_email} or {support_phone}."),
+                ],
+            },
+            "/refund-policy": {
+                "title": "Refund and Return Policy",
+                "kicker": "Returns",
+                "intro": "Fragrance products require careful handling, so returns are reviewed case by case.",
+                "sections": [
+                    ("Eligibility", "Unopened, unused, and sealed products may be reviewed for return requests raised within 48 hours of delivery."),
+                    ("Decants and partials", "Decants, testers, and partial bottles are final sale unless the wrong item or a damaged item was delivered."),
+                    ("Damage or mismatch", "Share unboxing photos or video immediately if the parcel arrives damaged or the product does not match the order."),
+                    ("Refunds", "Approved refunds are processed back to the original payment method or another mutually agreed method after inspection."),
+                ],
+            },
+            "/privacy-policy": {
+                "title": "Privacy Policy",
+                "kicker": "Privacy",
+                "intro": "We collect only the information needed to process orders, payments, customer accounts, and support requests.",
+                "sections": [
+                    ("Data collected", "Name, email, phone, address, order details, payment references, and account session data may be stored."),
+                    ("Payments", "Online payments are processed through Razorpay. Card, UPI, and netbanking details are handled by the payment gateway, not stored by The Scentist."),
+                    ("Use", "Information is used for checkout, fulfilment, fraud prevention, customer support, and operational analytics."),
+                    ("Contact", f"Privacy requests can be sent to {support_email}."),
+                ],
+            },
+            "/terms": {
+                "title": "Terms of Service",
+                "kicker": "Terms",
+                "intro": "By using The Scentist, you agree to purchase only for lawful personal use and provide accurate checkout details.",
+                "sections": [
+                    ("Authenticity", "Products are represented as accurately as possible with available stock, images, descriptions, and variants."),
+                    ("Pricing and stock", "Prices and availability can change. An order may require review if stock, payment, or address information is inconsistent."),
+                    ("Cancellations", "Orders can be cancelled before dispatch where operationally possible. Paid orders may require payment gateway reconciliation."),
+                    ("Business details", business_address),
+                ],
+            },
+            "/contact": {
+                "title": "Contact",
+                "kicker": "Support",
+                "intro": "For order, shipping, sourcing, or concierge help, reach The Scentist support desk.",
+                "sections": [
+                    ("Email", support_email),
+                    ("Phone", support_phone),
+                    ("Business address", business_address),
+                    ("Order help", "Include your order number, email, and phone number when asking about an existing order."),
+                ],
+            },
+        }
 
     def admin_cookie_signature(self) -> str:
         if not settings.admin_token:

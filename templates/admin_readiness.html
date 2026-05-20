@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="utility-hero">
+    <p class="section-kicker">Admin</p>
+    <h1>Production readiness</h1>
+    <p>Operational checks for payments, notifications, inventory, and support before taking real orders.</p>
+  </section>
+
+  <section class="admin-toolbar">
+    <a class="button button--ghost" href="/admin">Dashboard</a>
+    <a class="button button--ghost" href="/admin/orders">Orders</a>
+    <a class="button button--ghost" href="/admin/fragrances">Inventory</a>
+  </section>
+
+  <section class="admin-metrics">
+    <article class="order-card">
+      <span>Launch status</span>
+      <strong>{% if readiness.ready %}Ready{% else %}Hold{% endif %}</strong>
+    </article>
+    <article class="order-card">
+      <span>Active fragrances</span>
+      <strong>{{ readiness.metrics.active_fragrances }}</strong>
+    </article>
+    <article class="order-card">
+      <span>Placeholder images</span>
+      <strong>{{ readiness.metrics.placeholder_images }}</strong>
+    </article>
+    <article class="order-card">
+      <span>Orders needing review</span>
+      <strong>{{ readiness.metrics.orders_requiring_attention }}</strong>
+    </article>
+  </section>
+
+  <section class="order-card order-card--full">
+    <div class="admin-section-head">
+      <div>
+        <p class="section-kicker">Checklist</p>
+        <h2>{% if readiness.ready %}You can start final test orders{% else %}Fix these before launch{% endif %}</h2>
+      </div>
+    </div>
+    <div class="readiness-list">
+      {% for check in readiness.checks %}
+        <article class="readiness-row {% if check.ok %}is-ok{% else %}is-missing{% endif %}">
+          <strong>{{ check.label }}</strong>
+          <span>{% if check.ok %}Configured{% else %}Needs attention{% endif %}</span>
+          <p>{{ check.action }}</p>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="order-card order-card--full">
+    <p class="section-kicker">Razorpay webhook</p>
+    <h2>Configure this URL in Razorpay</h2>
+    <p class="footer-copy">{{ readiness.webhook_url }}</p>
+  </section>
+{% endblock %}
