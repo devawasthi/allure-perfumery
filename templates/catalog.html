@@ -1,8 +1,17 @@
 {% extends "base.html" %}
 
 {% block content %}
-  <section class="catalog-layout catalog-layout--minimal">
-    <aside class="filter-panel reveal" data-reveal>
+  <section class="catalog-layout catalog-layout--minimal catalog-layout--full" data-filter-drawer-root>
+    <button class="catalog-filter-backdrop" type="button" data-filter-drawer-close aria-label="Close filters" hidden></button>
+    <aside class="filter-panel catalog-filter-drawer" id="catalog-filter-drawer" data-filter-drawer aria-hidden="true">
+      <div class="filter-panel__head">
+        <p class="section-kicker">Filters</p>
+        <button class="filter-panel__close" type="button" data-filter-drawer-close aria-label="Close filters">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+            <path d="M6 6l12 12M18 6 6 18" />
+          </svg>
+        </button>
+      </div>
       <form action="/catalog" method="get" class="filter-form">
         <section class="filter-accordion is-open" data-filter-accordion>
           <button class="filter-accordion__trigger" type="button" data-filter-accordion-trigger aria-expanded="true">
@@ -157,29 +166,43 @@
       </form>
     </aside>
 
-    <div>
+    <div class="catalog-content">
       <div class="catalog-status">
         <span><strong>{{ catalog_total }}</strong> fragrances</span>
-        <form class="catalog-sort" action="/catalog" method="get">
-          {% for key, value in active_filters.items() %}
-            {% if value and key != "sort" %}
-              <input type="hidden" name="{{ key }}" value="{{ value }}" />
-            {% endif %}
-          {% endfor %}
-          <label class="catalog-sort__control">
-            <span class="catalog-sort__icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none">
-                <path d="M4 7h16M7 12h10M10 17h4" />
-              </svg>
-            </span>
-            <select name="sort" data-auto-submit aria-label="Sort catalog">
-              <option value="" {% if not active_filters.sort %}selected{% endif %}>Relevant</option>
-              <option value="price_high" {% if active_filters.sort == "price_high" %}selected{% endif %}>High to low</option>
-              <option value="price_low" {% if active_filters.sort == "price_low" %}selected{% endif %}>Low to high</option>
-              <option value="discount_high" {% if active_filters.sort == "discount_high" %}selected{% endif %}>Discount high to low</option>
-            </select>
-          </label>
-        </form>
+        <div class="catalog-controls">
+          <button
+            class="catalog-filter-trigger"
+            type="button"
+            data-filter-drawer-open
+            aria-controls="catalog-filter-drawer"
+            aria-expanded="false"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+              <path d="M4 7h16M7 12h10M10 17h4" />
+            </svg>
+            <span>Filters</span>
+          </button>
+          <form class="catalog-sort" action="/catalog" method="get">
+            {% for key, value in active_filters.items() %}
+              {% if value and key != "sort" %}
+                <input type="hidden" name="{{ key }}" value="{{ value }}" />
+              {% endif %}
+            {% endfor %}
+            <label class="catalog-sort__control">
+              <span class="catalog-sort__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="M3 6h18M6 12h12M10 18h4" />
+                </svg>
+              </span>
+              <select name="sort" data-auto-submit aria-label="Sort catalog">
+                <option value="" {% if not active_filters.sort %}selected{% endif %}>Relevant</option>
+                <option value="price_high" {% if active_filters.sort == "price_high" %}selected{% endif %}>High to low</option>
+                <option value="price_low" {% if active_filters.sort == "price_low" %}selected{% endif %}>Low to high</option>
+                <option value="discount_high" {% if active_filters.sort == "discount_high" %}selected{% endif %}>Discount high to low</option>
+              </select>
+            </label>
+          </form>
+        </div>
       </div>
 
       {% if catalog_items %}

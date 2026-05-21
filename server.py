@@ -418,6 +418,11 @@ class PerfumeryApplication:
                 **self.get_site_context(path, request),
                 "page_title": "Production readiness",
                 "readiness": self.build_readiness_report(),
+                "email_test": {
+                    "status": first_value(query, "email_test"),
+                    "message": first_value(query, "message"),
+                },
+                "csrf_token": self.admin_csrf_token(request),
             }
             return self.html_response(render_template("admin_readiness.html", context))
 
@@ -816,6 +821,25 @@ class PerfumeryApplication:
             return self.redirect_response(
                 "/",
                 headers=[("Set-Cookie", self.clear_admin_cookie())],
+            )
+
+        if path == "/admin/readiness/test-email":
+            if not self.is_admin_request(request):
+                return self.redirect_response("/admin/login")
+            fields = self.read_form_body(request)
+            csrf_error = self.validate_admin_csrf(request, fields)
+            if csrf_error:
+                return csrf_error
+            recipient = fields.get("recipient") or settings.admin_email or settings.notification_from_email
+            ok, message = notifier.send_test_email(recipient)
+            return self.redirect_response(
+                "/admin/readiness?"
+                + urlencode(
+                    {
+                        "email_test": "sent" if ok else "failed",
+                        "message": message[:220],
+                    }
+                )
             )
 
         if path == "/admin/fragrances":
@@ -1666,6 +1690,17 @@ class PerfumeryApplication:
             "ready": all(check["ok"] for check in checks),
             "metrics": metrics,
             "webhook_url": f"{settings.base_url or 'https://your-domain.example'}/api/webhooks/razorpay",
+            "smtp": {
+                "configured": notifier.enabled,
+                "host": settings.smtp_host or "Missing",
+                "port": settings.smtp_port,
+                "username_set": bool(settings.smtp_username),
+                "password_set": bool(settings.smtp_password),
+                "tls": settings.smtp_use_tls,
+                "from_email": settings.notification_from_email or "Missing",
+                "admin_email": settings.admin_email or "Missing",
+                "missing": notifier.missing_configuration(),
+            },
         }
 
     def readiness_check(self, label: str, ok: bool, action: str) -> dict[str, object]:

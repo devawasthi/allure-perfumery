@@ -11,6 +11,45 @@ const money = (value) =>
     maximumFractionDigits: 0,
   }).format(value || 0);
 
+const INDIA_CITY_OPTIONS = {
+  "Andaman and Nicobar Islands": ["Port Blair"],
+  "Andhra Pradesh": ["Amaravati", "Guntur", "Kakinada", "Nellore", "Tirupati", "Vijayawada", "Visakhapatnam"],
+  "Arunachal Pradesh": ["Itanagar", "Naharlagun", "Pasighat", "Tawang"],
+  Assam: ["Dibrugarh", "Guwahati", "Jorhat", "Silchar", "Tezpur"],
+  Bihar: ["Bhagalpur", "Gaya", "Muzaffarpur", "Patna"],
+  Chandigarh: ["Chandigarh"],
+  Chhattisgarh: ["Bhilai", "Bilaspur", "Korba", "Raipur"],
+  "Dadra and Nagar Haveli and Daman and Diu": ["Daman", "Diu", "Silvassa"],
+  Delhi: ["Delhi", "New Delhi"],
+  Goa: ["Margao", "Panaji", "Vasco da Gama"],
+  Gujarat: ["Ahmedabad", "Anand", "Gandhinagar", "Rajkot", "Surat", "Vadodara"],
+  Haryana: ["Ambala", "Faridabad", "Gurugram", "Hisar", "Karnal", "Panipat", "Rohtak"],
+  "Himachal Pradesh": ["Dharamshala", "Mandi", "Shimla", "Solan"],
+  "Jammu and Kashmir": ["Jammu", "Srinagar"],
+  Jharkhand: ["Bokaro", "Dhanbad", "Jamshedpur", "Ranchi"],
+  Karnataka: ["Bengaluru", "Hubballi", "Mangaluru", "Mysuru", "Udupi"],
+  Kerala: ["Kochi", "Kollam", "Kozhikode", "Thiruvananthapuram", "Thrissur"],
+  Ladakh: ["Kargil", "Leh"],
+  Lakshadweep: ["Kavaratti"],
+  "Madhya Pradesh": ["Bhopal", "Gwalior", "Indore", "Jabalpur", "Ujjain"],
+  Maharashtra: ["Mumbai", "Nagpur", "Nashik", "Pune", "Thane"],
+  Manipur: ["Imphal"],
+  Meghalaya: ["Shillong", "Tura"],
+  Mizoram: ["Aizawl"],
+  Nagaland: ["Dimapur", "Kohima"],
+  Odisha: ["Bhubaneswar", "Cuttack", "Puri", "Rourkela"],
+  Puducherry: ["Karaikal", "Puducherry"],
+  Punjab: ["Amritsar", "Jalandhar", "Ludhiana", "Mohali", "Patiala"],
+  Rajasthan: ["Ajmer", "Bikaner", "Jaipur", "Jodhpur", "Kota", "Udaipur"],
+  Sikkim: ["Gangtok"],
+  "Tamil Nadu": ["Chennai", "Coimbatore", "Madurai", "Salem", "Tiruchirappalli"],
+  Telangana: ["Hyderabad", "Karimnagar", "Secunderabad", "Warangal"],
+  Tripura: ["Agartala"],
+  "Uttar Pradesh": ["Agra", "Ghaziabad", "Kanpur", "Lucknow", "Noida", "Prayagraj", "Varanasi"],
+  Uttarakhand: ["Dehradun", "Haridwar", "Nainital", "Rishikesh"],
+  "West Bengal": ["Asansol", "Durgapur", "Howrah", "Kolkata", "Siliguri"],
+};
+
 const toastStack = document.querySelector("[data-toast-stack]");
 
 function showToast(message) {
@@ -409,11 +448,13 @@ async function mountCheckoutPage() {
         (item) => `
           <div class="checkout-line">
             ${imageMarkup(item, "fragrance-thumb fragrance-thumb--line")}
-            <div>
-              <strong>${item.brand} ${item.name}</strong>
+            <div class="checkout-line__content">
+              <div class="checkout-line__top">
+                <strong>${item.brand} ${item.name}</strong>
+                <strong class="checkout-line__price">${money(item.line_total)}</strong>
+              </div>
               <p>${item.size_label} - Qty ${item.quantity}</p>
             </div>
-            <strong>${money(item.line_total)}</strong>
           </div>
         `
       )
@@ -425,10 +466,61 @@ async function mountCheckoutPage() {
   const emailInput = form.querySelector('input[name="email"]');
   const phoneInput = form.querySelector('input[name="phone"]');
   const addressInput = form.querySelector('input[name="shipping_line1"]');
-  const cityInput = form.querySelector('input[name="city"]');
-  const stateInput = form.querySelector('input[name="state"]');
+  const stateInput = form.querySelector('[name="state"]');
+  const citySelect = form.querySelector("[data-city-select]");
+  const cityInput = form.querySelector("[data-city-value]") || form.querySelector('[name="city"]');
+  const cityOtherInput = form.querySelector("[data-city-other]");
   const postalInput = form.querySelector('input[name="postal_code"]');
-  const countryInput = form.querySelector('input[name="country"]');
+  const countryInput = form.querySelector('[name="country"]');
+
+  function appendOption(select, value, label = value) {
+    if (!select) return;
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    select.appendChild(option);
+  }
+
+  function syncCityValue() {
+    if (!citySelect || !cityInput) return;
+    const isOtherCity = citySelect.value === "__other__";
+    if (cityOtherInput) {
+      cityOtherInput.hidden = !isOtherCity;
+      cityOtherInput.required = isOtherCity;
+      if (!isOtherCity) {
+        cityOtherInput.value = "";
+        cityOtherInput.setCustomValidity("");
+      }
+    }
+    cityInput.value = isOtherCity ? cityOtherInput?.value.trim() || "" : citySelect.value;
+  }
+
+  function populateCitySelect() {
+    if (!citySelect || !stateInput) return;
+    const cities = INDIA_CITY_OPTIONS[stateInput.value] || [];
+    citySelect.innerHTML = "";
+    citySelect.disabled = !stateInput.value;
+    appendOption(citySelect, "", stateInput.value ? "Select city" : "Select state first");
+    cities.forEach((city) => appendOption(citySelect, city));
+    if (stateInput.value) appendOption(citySelect, "__other__", "Other city / not listed");
+    citySelect.dispatchEvent(new Event("custom-select:refresh"));
+    syncCityValue();
+  }
+
+  populateCitySelect();
+  stateInput?.addEventListener("change", () => {
+    populateCitySelect();
+    validateRequiredText(stateInput, "State");
+    validateCity();
+  });
+  citySelect?.addEventListener("change", () => {
+    syncCityValue();
+    validateCity();
+  });
+  cityOtherInput?.addEventListener("input", () => {
+    syncCityValue();
+    validateCity();
+  });
 
   function validateRequiredText(input, label, minLength = 2) {
     if (!input) return true;
@@ -481,11 +573,24 @@ async function mountCheckoutPage() {
     return isValid;
   }
 
+  function validateCity() {
+    syncCityValue();
+    if (citySelect && !citySelect.value) {
+      citySelect.setCustomValidity("City is required.");
+      return false;
+    }
+    citySelect?.setCustomValidity("");
+    if (citySelect?.value === "__other__") {
+      return validateRequiredText(cityOtherInput, "City");
+    }
+    return validateRequiredText(cityInput, "City");
+  }
+
   function runCheckoutValidation() {
     const checks = [
       validateRequiredText(addressInput, "Address", 8),
-      validateRequiredText(cityInput, "City"),
       validateRequiredText(stateInput, "State"),
+      validateCity(),
       validateRequiredText(countryInput, "Country"),
       validateEmail(),
       validatePhone(),
@@ -498,7 +603,6 @@ async function mountCheckoutPage() {
     [emailInput, validateEmail],
     [phoneInput, validatePhone],
     [addressInput, () => validateRequiredText(addressInput, "Address", 8)],
-    [cityInput, () => validateRequiredText(cityInput, "City")],
     [stateInput, () => validateRequiredText(stateInput, "State")],
     [postalInput, validatePostalCode],
     [countryInput, () => validateRequiredText(countryInput, "Country")],
@@ -736,6 +840,7 @@ function mountCustomSelects() {
     function syncLabel() {
       const option = selectedOption();
       value.textContent = option ? option.textContent.trim() : "";
+      button.disabled = select.disabled;
       list.querySelectorAll(".custom-select__option").forEach((optionButton) => {
         const isSelected = optionButton.dataset.value === select.value;
         optionButton.classList.toggle("is-selected", isSelected);
@@ -743,22 +848,30 @@ function mountCustomSelects() {
       });
     }
 
-    Array.from(select.options).forEach((option) => {
-      const optionButton = document.createElement("button");
-      optionButton.type = "button";
-      optionButton.className = "custom-select__option";
-      optionButton.dataset.value = option.value;
-      optionButton.textContent = option.textContent.trim();
-      optionButton.setAttribute("role", "option");
-      optionButton.addEventListener("click", () => {
-        select.value = option.value;
-        select.dispatchEvent(new Event("change", { bubbles: true }));
-        syncLabel();
-        close();
-        button.focus();
+    function rebuildOptions() {
+      list.innerHTML = "";
+      Array.from(select.options).forEach((option) => {
+        const optionButton = document.createElement("button");
+        optionButton.type = "button";
+        optionButton.className = "custom-select__option";
+        optionButton.dataset.value = option.value;
+        optionButton.disabled = option.disabled;
+        optionButton.textContent = option.textContent.trim();
+        optionButton.setAttribute("role", "option");
+        optionButton.addEventListener("click", () => {
+          if (option.disabled) return;
+          select.value = option.value;
+          select.dispatchEvent(new Event("change", { bubbles: true }));
+          syncLabel();
+          close();
+          button.focus();
+        });
+        list.appendChild(optionButton);
       });
-      list.appendChild(optionButton);
-    });
+      syncLabel();
+    }
+
+    rebuildOptions();
 
     button.addEventListener("click", () => {
       const shouldOpen = !custom.classList.contains("is-open");
@@ -779,7 +892,7 @@ function mountCustomSelects() {
     });
 
     select.addEventListener("change", syncLabel);
-    syncLabel();
+    select.addEventListener("custom-select:refresh", rebuildOptions);
   });
 
   if (window.customSelectDismissMounted) return;
@@ -827,11 +940,55 @@ function mountFilterSearches() {
   });
 }
 
+function mountCatalogFilterDrawer() {
+  const root = document.querySelector("[data-filter-drawer-root]");
+  const drawer = root?.querySelector("[data-filter-drawer]");
+  const backdrop = root?.querySelector("[data-filter-drawer-close].catalog-filter-backdrop");
+  const openButton = root?.querySelector("[data-filter-drawer-open]");
+  if (!root || !drawer || !openButton) return;
+
+  function updateDrawerOffset() {
+    const header = document.querySelector(".site-header");
+    const nav = header?.querySelector(".nav-wrap");
+    const headerHeight = nav?.offsetHeight || header?.offsetHeight || 0;
+    document.documentElement.style.setProperty("--catalog-filter-top", `${Math.max(0, headerHeight + 12)}px`);
+  }
+
+  function setOpen(isOpen) {
+    if (isOpen) {
+      updateDrawerOffset();
+    }
+    root.classList.toggle("is-filter-open", isOpen);
+    drawer.setAttribute("aria-hidden", isOpen ? "false" : "true");
+    openButton.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    if (backdrop) {
+      backdrop.hidden = !isOpen;
+    }
+    document.body.classList.toggle("catalog-filter-open", isOpen);
+  }
+
+  openButton.addEventListener("click", () => setOpen(true));
+  root.querySelectorAll("[data-filter-drawer-close]").forEach((button) => {
+    button.addEventListener("click", () => setOpen(false));
+  });
+  drawer.querySelector("form")?.addEventListener("submit", () => setOpen(false));
+  window.addEventListener("resize", () => {
+    if (root.classList.contains("is-filter-open")) {
+      updateDrawerOffset();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && root.classList.contains("is-filter-open")) {
+      setOpen(false);
+      openButton.focus();
+    }
+  });
+}
+
 function mountSmartHeader() {
   const header = document.querySelector(".site-header");
   if (!header) return;
 
-  const announcement = header.querySelector(".announcement-bar");
   const nav = header.querySelector(".nav-wrap");
   let ticking = false;
   let isCondensed = false;
@@ -842,8 +999,7 @@ function mountSmartHeader() {
 
   function setHeaderMetrics() {
     const navHeight = nav?.offsetHeight || header.offsetHeight || 0;
-    const announcementHeight = isCondensed || isNavHidden ? 0 : announcement?.scrollHeight || 0;
-    const visibleHeight = isNavHidden ? 0 : navHeight + announcementHeight;
+    const visibleHeight = isNavHidden ? 0 : navHeight;
     const visibleOffset = isNavHidden ? 16 : Math.max(72, visibleHeight + 12);
     document.documentElement.style.setProperty("--site-header-height", `${visibleHeight}px`);
     document.documentElement.style.setProperty("--filter-sticky-top", `${visibleOffset}px`);
@@ -1010,6 +1166,7 @@ function mountMegaMenus() {
     if (!trigger || trigger.dataset.megaMounted === "true") return;
     trigger.dataset.megaMounted = "true";
     trigger.addEventListener("click", (event) => {
+      if (window.matchMedia("(max-width: 760px)").matches) return;
       if (item.classList.contains("is-open")) return;
       event.preventDefault();
       megaItems.forEach((node) => node.classList.remove("is-open"));
@@ -1150,6 +1307,7 @@ mountCheckoutPage();
 mountCustomSelects();
 mountFilterAccordions();
 mountFilterSearches();
+mountCatalogFilterDrawer();
 mountSearchFocus();
 mountMegaMenus();
 mountAutoSubmitControls();

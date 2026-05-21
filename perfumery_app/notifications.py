@@ -17,11 +17,38 @@ class OrderNotifier:
 
     @property
     def enabled(self) -> bool:
-        return bool(
-            self.settings.smtp_host
-            and self.settings.notification_from_email
-            and (self.settings.admin_email or self.settings.smtp_username)
+        return not self.missing_configuration()
+
+    def missing_configuration(self) -> list[str]:
+        missing: list[str] = []
+        if not self.settings.smtp_host:
+            missing.append("SMTP_HOST")
+        if not self.settings.notification_from_email:
+            missing.append("NOTIFICATION_FROM_EMAIL")
+        if not self.settings.admin_email and not self.settings.smtp_username:
+            missing.append("ADMIN_EMAIL or SMTP_USERNAME")
+        return missing
+
+    def send_test_email(self, recipient: str) -> tuple[bool, str]:
+        recipient = str(recipient or "").strip()
+        if not recipient:
+            return False, "Enter an email address to receive the SMTP test."
+
+        missing = self.missing_configuration()
+        if missing:
+            return False, f"Missing SMTP configuration: {', '.join(missing)}."
+
+        subject = "The Scentist SMTP test"
+        body = (
+            "SMTP is connected for The Scentist.\n\n"
+            "If you received this email, local order notifications can be delivered."
         )
+        try:
+            self._send_message(recipient, subject, body)
+            return True, f"Sent test email to {recipient}."
+        except Exception as exc:
+            logger.exception("Unable to send SMTP test email to %s", recipient)
+            return False, f"{exc.__class__.__name__}: {exc}"
 
     def send_order_received(self, order: dict[str, Any]) -> bool:
         if not self.enabled:
@@ -53,23 +80,35 @@ class OrderNotifier:
         return delivered
 
     def _send(self, recipient: str, subject: str, body: str) -> bool:
-        message = EmailMessage()
-        message["From"] = self.settings.notification_from_email
-        message["To"] = recipient
-        message["Subject"] = subject
-        message.set_content(body)
-
         try:
-            with smtplib.SMTP(self.settings.smtp_host, self.settings.smtp_port, timeout=12) as smtp:
-                if self.settings.smtp_use_tls:
-                    smtp.starttls()
-                if self.settings.smtp_username or self.settings.smtp_password:
-                    smtp.login(self.settings.smtp_username, self.settings.smtp_password)
-                smtp.send_message(message)
+            self._send_message(recipient, subject, body)
             return True
         except Exception:
             logger.exception("Unable to send order notification to %s", recipient)
             return False
+
+    def _send_message(self, recipient: str, subject: str, body: str) -> None:
+        message = EmailMessage()
+        message["From"] = self.settings.notification_from_email
+        message["To"] = recipient
+        message["Subject"] = subject
+        if self.settings.support_email or self.settings.admin_email:
+            message["Reply-To"] = self.settings.support_email or self.settings.admin_email
+        message.set_content(body)
+
+        if self.settings.smtp_use_tls and self.settings.smtp_port == 465:
+            with smtplib.SMTP_SSL(self.settings.smtp_host, self.settings.smtp_port, timeout=12) as smtp:
+                if self.settings.smtp_username or self.settings.smtp_password:
+                    smtp.login(self.settings.smtp_username, self.settings.smtp_password)
+                smtp.send_message(message)
+            return
+
+        with smtplib.SMTP(self.settings.smtp_host, self.settings.smtp_port, timeout=12) as smtp:
+            if self.settings.smtp_use_tls:
+                smtp.starttls()
+            if self.settings.smtp_username or self.settings.smtp_password:
+                smtp.login(self.settings.smtp_username, self.settings.smtp_password)
+            smtp.send_message(message)
 
     def _customer_body(self, order: dict[str, Any]) -> str:
         lines = [

@@ -55,4 +55,51 @@
     <h2>Configure this URL in Razorpay</h2>
     <p class="footer-copy">{{ readiness.webhook_url }}</p>
   </section>
+
+  <section class="order-card order-card--full">
+    <div class="admin-section-head">
+      <div>
+        <p class="section-kicker">SMTP</p>
+        <h2>Email notification test</h2>
+      </div>
+    </div>
+
+    <div class="readiness-smtp-grid">
+      <div><span>Host</span><strong>{{ readiness.smtp.host }}</strong></div>
+      <div><span>Port</span><strong>{{ readiness.smtp.port }}</strong></div>
+      <div><span>Username</span><strong>{% if readiness.smtp.username_set %}Set{% else %}Missing{% endif %}</strong></div>
+      <div><span>Password</span><strong>{% if readiness.smtp.password_set %}Set{% else %}Missing{% endif %}</strong></div>
+      <div><span>From email</span><strong>{{ readiness.smtp.from_email }}</strong></div>
+      <div><span>Admin email</span><strong>{{ readiness.smtp.admin_email }}</strong></div>
+    </div>
+
+    {% if readiness.smtp.missing %}
+      <p class="checkout-form__status is-error">
+        Missing: {{ readiness.smtp.missing|join(", ") }}. Add these to your local .env or Render environment, then restart.
+      </p>
+    {% endif %}
+
+    {% if email_test.message %}
+      <p class="checkout-form__status {% if email_test.status == 'failed' %}is-error{% endif %}">
+        {{ email_test.message }}
+      </p>
+    {% endif %}
+
+    <form class="checkout-form readiness-test-form" action="/admin/readiness/test-email" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <label>
+        Send test email to
+        <input
+          type="email"
+          name="recipient"
+          value="{% if readiness.smtp.admin_email != 'Missing' %}{{ readiness.smtp.admin_email }}{% endif %}"
+          placeholder="you@example.com"
+          required
+        />
+      </label>
+      <div class="checkout-form__actions">
+        <button type="submit" class="button">Send SMTP test</button>
+      </div>
+    </form>
+  </section>
 {% endblock %}

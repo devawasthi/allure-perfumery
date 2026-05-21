@@ -89,14 +89,69 @@
           <input type="text" name="shipping_line2" placeholder="Apartment, landmark, suite (optional)" />
         </label>
 
-        <div class="checkout-form__grid">
+        <div class="checkout-form__grid checkout-form__grid--address">
           <label>
-            City
-            <input type="text" name="city" autocomplete="address-level2" minlength="2" required />
+            State / Union Territory
+            <span class="select-shell checkout-select-shell">
+              <select name="state" autocomplete="address-level1" data-state-select data-custom-select required>
+                <option value="">Select state</option>
+                <option value="Andaman and Nicobar Islands">Andaman and Nicobar Islands</option>
+                <option value="Andhra Pradesh">Andhra Pradesh</option>
+                <option value="Arunachal Pradesh">Arunachal Pradesh</option>
+                <option value="Assam">Assam</option>
+                <option value="Bihar">Bihar</option>
+                <option value="Chandigarh">Chandigarh</option>
+                <option value="Chhattisgarh">Chhattisgarh</option>
+                <option value="Dadra and Nagar Haveli and Daman and Diu">Dadra and Nagar Haveli and Daman and Diu</option>
+                <option value="Delhi">Delhi</option>
+                <option value="Goa">Goa</option>
+                <option value="Gujarat">Gujarat</option>
+                <option value="Haryana">Haryana</option>
+                <option value="Himachal Pradesh">Himachal Pradesh</option>
+                <option value="Jammu and Kashmir">Jammu and Kashmir</option>
+                <option value="Jharkhand">Jharkhand</option>
+                <option value="Karnataka">Karnataka</option>
+                <option value="Kerala">Kerala</option>
+                <option value="Ladakh">Ladakh</option>
+                <option value="Lakshadweep">Lakshadweep</option>
+                <option value="Madhya Pradesh">Madhya Pradesh</option>
+                <option value="Maharashtra">Maharashtra</option>
+                <option value="Manipur">Manipur</option>
+                <option value="Meghalaya">Meghalaya</option>
+                <option value="Mizoram">Mizoram</option>
+                <option value="Nagaland">Nagaland</option>
+                <option value="Odisha">Odisha</option>
+                <option value="Puducherry">Puducherry</option>
+                <option value="Punjab">Punjab</option>
+                <option value="Rajasthan">Rajasthan</option>
+                <option value="Sikkim">Sikkim</option>
+                <option value="Tamil Nadu">Tamil Nadu</option>
+                <option value="Telangana">Telangana</option>
+                <option value="Tripura">Tripura</option>
+                <option value="Uttar Pradesh">Uttar Pradesh</option>
+                <option value="Uttarakhand">Uttarakhand</option>
+                <option value="West Bengal">West Bengal</option>
+              </select>
+            </span>
           </label>
           <label>
-            State
-            <input type="text" name="state" autocomplete="address-level1" minlength="2" required />
+            City
+            <span class="select-shell checkout-select-shell">
+              <select data-city-select data-custom-select required disabled>
+                <option value="">Select state first</option>
+              </select>
+            </span>
+            <input type="hidden" name="city" data-city-value required />
+            <input
+              class="checkout-city-other"
+              type="text"
+              name="city_other"
+              data-city-other
+              autocomplete="address-level2"
+              placeholder="Enter your city"
+              minlength="2"
+              hidden
+            />
           </label>
           <label>
             Postal code
@@ -112,7 +167,11 @@
           </label>
           <label>
             Country
-            <input type="text" name="country" value="India" autocomplete="country-name" minlength="2" required />
+            <span class="select-shell checkout-select-shell">
+              <select name="country" autocomplete="country-name" data-custom-select required>
+                <option value="India" selected>India</option>
+              </select>
+            </span>
           </label>
         </div>
 
@@ -132,7 +191,7 @@
 
     <aside class="commerce-shell__sidebar">
       <div class="summary-card">
-        <p class="section-kicker">Live Summary</p>
+        <p class="section-kicker">Order Summary</p>
         <div class="summary-card__lines" data-checkout-items></div>
         <div class="summary-card__lines">
           <div><span>Subtotal</span><strong data-checkout-subtotal>{{ 0|money }}</strong></div>
