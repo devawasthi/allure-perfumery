@@ -20,6 +20,9 @@ class ValidationError(Exception):
     """Raised when client data fails validation."""
 
 
+MIN_PUBLIC_VARIANT_SIZE_ML = 5
+
+
 class DatabaseConnection:
     dialect = "unknown"
 
@@ -943,11 +946,35 @@ class Database:
 
     def list_filters(self) -> dict[str, list[str]]:
         with self.connect() as conn:
-            brands = [row["brand"] for row in conn.execute("SELECT DISTINCT brand FROM fragrances WHERE is_active = 1 ORDER BY brand")]
-            families = [row["family"] for row in conn.execute("SELECT DISTINCT family FROM fragrances WHERE is_active = 1 ORDER BY family")]
+            sellable_clause = """
+                EXISTS (
+                    SELECT 1
+                    FROM variants v
+                    WHERE v.fragrance_id = fragrances.id
+                      AND v.stock_units > 0
+                      AND v.size_ml >= ?
+                )
+            """
+            brands = [
+                row["brand"]
+                for row in conn.execute(
+                    f"SELECT DISTINCT brand FROM fragrances WHERE is_active = 1 AND {sellable_clause} ORDER BY brand",
+                    (MIN_PUBLIC_VARIANT_SIZE_ML,),
+                )
+            ]
+            families = [
+                row["family"]
+                for row in conn.execute(
+                    f"SELECT DISTINCT family FROM fragrances WHERE is_active = 1 AND {sellable_clause} ORDER BY family",
+                    (MIN_PUBLIC_VARIANT_SIZE_ML,),
+                )
+            ]
             collections = [
                 row["collection_type"]
-                for row in conn.execute("SELECT DISTINCT collection_type FROM fragrances WHERE is_active = 1 ORDER BY collection_type")
+                for row in conn.execute(
+                    f"SELECT DISTINCT collection_type FROM fragrances WHERE is_active = 1 AND {sellable_clause} ORDER BY collection_type",
+                    (MIN_PUBLIC_VARIANT_SIZE_ML,),
+                )
             ]
             sale_types = [
                 row["sale_type"]
@@ -957,8 +984,11 @@ class Database:
                     FROM variants v
                     JOIN fragrances f ON f.id = v.fragrance_id
                     WHERE f.is_active = 1
+                      AND v.stock_units > 0
+                      AND v.size_ml >= ?
                     ORDER BY v.sale_type
-                    """
+                    """,
+                    (MIN_PUBLIC_VARIANT_SIZE_ML,),
                 )
             ]
 
@@ -977,9 +1007,17 @@ class Database:
                 SELECT collection_type, brand, COUNT(*) AS count
                   FROM fragrances
                  WHERE is_active = 1
+                   AND EXISTS (
+                       SELECT 1
+                       FROM variants v
+                       WHERE v.fragrance_id = fragrances.id
+                         AND v.stock_units > 0
+                         AND v.size_ml >= ?
+                   )
                  GROUP BY collection_type, brand
                  ORDER BY collection_type, brand
-                """
+                """,
+                (MIN_PUBLIC_VARIANT_SIZE_ML,),
             ).fetchall()
 
         groups: dict[str, list[dict[str, Any]]] = {"designer": [], "niche": []}
@@ -1034,15 +1072,16 @@ class Database:
         return [self._serialize_fragrance(row, variants_by_fragrance.get(row["id"], [])) for row in fragrance_rows]
 
     def _fragrance_order_by(self, sort: str) -> str:
-        min_price = """
+        min_price = f"""
             COALESCE((
                 SELECT MIN(v.price_inr)
                 FROM variants v
                 WHERE v.fragrance_id = fragrances.id
                   AND v.stock_units > 0
+                  AND v.size_ml >= {MIN_PUBLIC_VARIANT_SIZE_ML}
             ), 0)
         """
-        max_discount = """
+        max_discount = f"""
             COALESCE((
                 SELECT MAX(
                     CASE
@@ -1054,6 +1093,7 @@ class Database:
                 FROM variants v
                 WHERE v.fragrance_id = fragrances.id
                   AND v.stock_units > 0
+                  AND v.size_ml >= {MIN_PUBLIC_VARIANT_SIZE_ML}
             ), 0)
         """
 
@@ -1097,6 +1137,18 @@ class Database:
 
         if not include_inactive:
             clauses.append("is_active = 1")
+            clauses.append(
+                """
+                EXISTS (
+                    SELECT 1
+                    FROM variants v
+                    WHERE v.fragrance_id = fragrances.id
+                      AND v.stock_units > 0
+                      AND v.size_ml >= ?
+                )
+                """
+            )
+            params.append(MIN_PUBLIC_VARIANT_SIZE_ML)
 
         if featured_only:
             clauses.append("featured = 1")
@@ -1128,9 +1180,19 @@ class Database:
 
         if filters.get("sale_type"):
             clauses.append(
-                "EXISTS (SELECT 1 FROM variants v WHERE v.fragrance_id = fragrances.id AND v.sale_type = ? AND v.stock_units > 0)"
+                """
+                EXISTS (
+                    SELECT 1
+                    FROM variants v
+                    WHERE v.fragrance_id = fragrances.id
+                      AND v.sale_type = ?
+                      AND v.stock_units > 0
+                      AND v.size_ml >= ?
+                )
+                """
             )
             params.append(filters["sale_type"])
+            params.append(MIN_PUBLIC_VARIANT_SIZE_ML)
 
         return clauses, params
 
@@ -1765,6 +1827,8 @@ class Database:
         size_ml = self._clean_non_negative_int(fields.get("size_ml"), "Size ml", default=100)
         if size_ml <= 0:
             raise ValidationError("Size ml must be greater than zero.")
+        if size_ml < MIN_PUBLIC_VARIANT_SIZE_ML:
+            raise ValidationError(f"Size ml must be at least {MIN_PUBLIC_VARIANT_SIZE_ML} ml.")
         size_label = self._clean_text(fields.get("size_label")) or f"{size_ml} ml"
         sku = slugify(fields.get("sku") or f"{fragrance_slug}-{sale_type}-{size_ml}")
         if not sku:
@@ -1837,6 +1901,8 @@ class Database:
             if row is None:
                 return None
             variants = self._variants_by_fragrance(conn, [row["id"]]).get(row["id"], [])
+            if not variants:
+                return None
             return self._serialize_fragrance(row, variants)
 
     def get_related_fragrances(self, fragrance: dict[str, Any], limit: int = 3) -> list[dict[str, Any]]:
@@ -1848,6 +1914,13 @@ class Database:
                 WHERE slug != ?
                   AND is_active = 1
                   AND (brand = ? OR gender = ? OR family = ?)
+                  AND EXISTS (
+                      SELECT 1
+                      FROM variants v
+                      WHERE v.fragrance_id = fragrances.id
+                        AND v.stock_units > 0
+                        AND v.size_ml >= ?
+                  )
                 ORDER BY featured DESC, rank ASC
                 LIMIT ?
                 """,
@@ -1856,6 +1929,7 @@ class Database:
                     fragrance["brand"],
                     fragrance["gender"],
                     fragrance["family"],
+                    MIN_PUBLIC_VARIANT_SIZE_ML,
                     limit,
                 ),
             ).fetchall()
@@ -2042,9 +2116,10 @@ class Database:
                 JOIN fragrances f ON f.id = v.fragrance_id
                 WHERE v.id IN ({placeholders})
                   AND f.is_active = 1
+                  AND v.size_ml >= ?
                 ORDER BY f.rank ASC, v.price_inr ASC
                 """,
-                variant_ids,
+                [*variant_ids, MIN_PUBLIC_VARIANT_SIZE_ML],
             ).fetchall()
         return [dict(row) for row in rows]
 
@@ -2636,8 +2711,9 @@ class Database:
                     JOIN fragrances f ON f.id = v.fragrance_id
                     WHERE v.id = ?
                       AND f.is_active = 1
+                      AND v.size_ml >= ?
                     """,
-                    (variant_id,),
+                    (variant_id, MIN_PUBLIC_VARIANT_SIZE_ML),
                 ).fetchone()
 
                 if row is None:
@@ -2834,6 +2910,7 @@ class Database:
             SELECT *
             FROM variants
             WHERE fragrance_id IN ({placeholders})
+              AND size_ml >= ?
             ORDER BY
                 CASE sale_type
                     WHEN 'retail' THEN 1
@@ -2845,7 +2922,7 @@ class Database:
                 size_ml ASC,
                 price_inr ASC
             """,
-            fragrance_ids,
+            [*fragrance_ids, MIN_PUBLIC_VARIANT_SIZE_ML],
         ).fetchall()
 
         grouped: dict[int, list[dict[str, Any]]] = {}

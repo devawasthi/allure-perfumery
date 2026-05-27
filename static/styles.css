@@ -2616,10 +2616,11 @@ body.search-focus-open .site-footer {
 .product-card__actions {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: flex-end;
   justify-content: flex-end;
   gap: 0.58rem;
-  min-height: 4.1rem;
+  min-height: 1.8rem;
+  text-align: right;
 }
 
 .product-card__actions .button {
@@ -2644,42 +2645,6 @@ body.search-focus-open .site-footer {
   border-bottom-color: rgba(215, 199, 183, 0.52);
   color: var(--text);
   box-shadow: none;
-}
-
-.product-card__actions .product-card__quick {
-  min-width: 8.8rem;
-  border: 1px solid rgba(215, 199, 183, 0.2);
-  background: #2c241f;
-  color: #fffaf4;
-  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.16);
-  transition:
-    opacity 280ms ease,
-    transform 280ms ease,
-    background 180ms ease,
-    border-color 180ms ease,
-    box-shadow 180ms ease;
-}
-
-.product-card__actions .product-card__quick:hover {
-  border-color: rgba(215, 199, 183, 0.34);
-  background: #382f29;
-  color: #fffaf4;
-  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.22);
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .product-card__actions .product-card__quick {
-    opacity: 0;
-    pointer-events: none;
-    transform: translateY(0.55rem);
-  }
-
-  .product-card:hover .product-card__actions .product-card__quick,
-  .product-card:focus-within .product-card__actions .product-card__quick {
-    opacity: 1;
-    pointer-events: auto;
-    transform: translateY(0);
-  }
 }
 
 .catalog-hero {
@@ -4433,6 +4398,12 @@ body.catalog-filter-open .floating-concierge {
   background: rgba(255, 255, 255, 0.026);
 }
 
+.admin-help-text {
+  margin: 1rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
 .readiness-list,
 .policy-grid {
   display: grid;
@@ -5016,20 +4987,6 @@ code {
   border-bottom-color: rgba(78, 70, 62, 0.42);
   color: var(--text);
   box-shadow: none;
-}
-
-:root[data-theme="light"] .product-card__actions .product-card__quick {
-  border-color: rgba(47, 61, 56, 0.16);
-  background: #2f3d38;
-  color: #fffaf4;
-  box-shadow: 0 14px 28px rgba(47, 61, 56, 0.14);
-}
-
-:root[data-theme="light"] .product-card__actions .product-card__quick:hover {
-  border-color: rgba(47, 61, 56, 0.28);
-  background: #26342f;
-  color: #fffaf4;
-  box-shadow: 0 18px 32px rgba(47, 61, 56, 0.18);
 }
 
 :root[data-theme="light"] .offer-card__badge {

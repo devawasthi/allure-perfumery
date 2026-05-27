@@ -187,6 +187,17 @@
     </div>
   </section>
 
+  <section class="product-section">
+    <div class="section-heading section-heading--center">
+      <p class="section-kicker">Featured Selection</p>
+    </div>
+    <div class="product-grid">
+      {% for item in featured %}
+        {% include "_product_card.html" %}
+      {% endfor %}
+    </div>
+  </section>
+
   <section class="founder-spotlight" aria-labelledby="founder-spotlight-title">
     <h2 id="founder-spotlight-title">Gaurav Verma</h2>
     <figure class="founder-spotlight__figure">
@@ -200,16 +211,5 @@
       Gaurav Verma continues to create unexpected fragrance experiences that embody
       ultimate sophistication and timeless luxury.
     </p>
-  </section>
-
-  <section class="product-section">
-    <div class="section-heading section-heading--center">
-      <p class="section-kicker">Featured Selection</p>
-    </div>
-    <div class="product-grid">
-      {% for item in featured %}
-        {% include "_product_card.html" %}
-      {% endfor %}
-    </div>
   </section>
 {% endblock %}

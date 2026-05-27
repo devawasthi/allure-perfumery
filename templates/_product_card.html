@@ -38,17 +38,6 @@
       </div>
       <div class="product-card__actions">
         <a class="button product-card__view" href="/fragrances/{{ item.slug }}">View options</a>
-        {% if item.quick_add_variant %}
-          <button
-            type="button"
-            class="button button--ghost product-card__quick"
-            data-add-to-cart
-            data-variant-id="{{ item.quick_add_variant.id }}"
-            data-item-label="{{ item.brand }} {{ item.name }} {{ item.quick_add_variant.size_label }}"
-          >
-            Quick add
-          </button>
-        {% endif %}
       </div>
     </div>
   </div>

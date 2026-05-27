@@ -20,7 +20,7 @@ except ImportError:  # pragma: no cover - optional local helper
         return False
 
 from perfumery_app.config import load_settings
-from perfumery_app.database import Database
+from perfumery_app.database import Database, MIN_PUBLIC_VARIANT_SIZE_ML
 from perfumery_app.note_extraction import extract_note_pyramid
 
 
@@ -129,6 +129,10 @@ def size_ml(value: str) -> int:
     return max(1, int(round(float(match.group(1)))))
 
 
+def has_public_size(value: str) -> bool:
+    return size_ml(value) >= MIN_PUBLIC_VARIANT_SIZE_ML
+
+
 def sale_type(value: str, product_name: str = "") -> str:
     label = f"{product_name} {value}".lower()
     if "partial" in label:
@@ -190,6 +194,11 @@ def build_import_rows(
         slug = f"scentoria-{slugify(row['handle'] or f'{brand}-{name}')}"
         if only_available:
             product_variants = [variant for variant in product_variants if variant["available"] == "True"]
+        product_variants = [
+            variant
+            for variant in product_variants
+            if has_public_size(variant["size_or_format"].strip() or variant["variant_title"].strip())
+        ]
         if not product_variants:
             if only_available:
                 unavailable_slugs.append((slug,))
@@ -536,6 +545,11 @@ def upsert_products(
                 slug = f"scentoria-{slugify(row['handle'] or f'{brand}-{name}')}"
                 if only_available:
                     product_variants = [variant for variant in product_variants if variant["available"] == "True"]
+                product_variants = [
+                    variant
+                    for variant in product_variants
+                    if has_public_size(variant["size_or_format"].strip() or variant["variant_title"].strip())
+                ]
                 if not product_variants:
                     if only_available:
                         conn.execute("DELETE FROM fragrances WHERE slug = ?", (slug,))

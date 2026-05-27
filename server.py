@@ -598,9 +598,22 @@ class PerfumeryApplication:
             return self.html_response(render_template("policy.html", context))
 
         if path == "/":
-            featured = db.get_featured(9)
-            if not featured:
-                featured = db.list_fragrances(limit=9)
+            featured = []
+            seen_featured_slugs = set()
+            for group in (
+                db.list_fragrances({"brand": "Creed"}, limit=3),
+                db.get_featured(9),
+                db.list_fragrances(limit=9),
+            ):
+                for item in group:
+                    if item["slug"] in seen_featured_slugs:
+                        continue
+                    featured.append(item)
+                    seen_featured_slugs.add(item["slug"])
+                    if len(featured) >= 9:
+                        break
+                if len(featured) >= 9:
+                    break
             context = {
                 **self.get_site_context(path, request),
                 "page_title": "Luxury niche and designer fragrances",
