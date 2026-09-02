@@ -10,6 +10,7 @@ import mimetypes
 import os
 import re
 import secrets
+import threading
 import time
 from dataclasses import dataclass, field
 from email.parser import BytesParser
@@ -29,6 +30,7 @@ from perfumery_app.config import load_settings
 from perfumery_app.database import Database, ValidationError
 from perfumery_app.notifications import OrderNotifier
 from perfumery_app.payments import PaymentGatewayError, RazorpayClient
+from perfumery_app.rate_limit import RateLimiter
 
 try:
     from dotenv import load_dotenv
@@ -43,6 +45,9 @@ load_dotenv(BASE_DIR / ".env")
 settings = load_settings()
 if settings.is_production and settings.razorpay_enabled and not settings.razorpay_webhook_secret:
     raise RuntimeError("RAZORPAY_WEBHOOK_SECRET is required in production when Razorpay is enabled.")
+if settings.is_production and len(settings.app_secret_key) < 32:
+    raise RuntimeError("APP_SECRET_KEY must contain at least 32 characters in production.")
+APP_HMAC_SECRET = settings.app_secret_key or settings.admin_token or secrets.token_urlsafe(32)
 
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
@@ -68,6 +73,7 @@ db.initialize()
 razorpay = RazorpayClient(settings.razorpay_key_id, settings.razorpay_key_secret)
 notifier = OrderNotifier(settings)
 concierge = ScentConcierge(settings, db)
+rate_limiter = RateLimiter(settings.redis_url)
 ONLINE_PAYMENT_METHODS = {"UPI", "Netbanking", "Credit/Debit Card"}
 
 BRAND_WORDMARKS: dict[str, tuple[str, list[str]]] = {
@@ -124,17 +130,17 @@ env.filters["titleize_enum"] = titleize_enum
 
 
 def notify_order_once(order: dict) -> None:
-    if order.get("notification_sent_at"):
-        return
-    if notifier.send_order_received(order):
-        db.mark_order_notified(order["order_number"])
+    try:
+        db.enqueue_order_notification(order["order_number"], "order_received")
+    except Exception:
+        logger.exception("Unable to enqueue order notification for %s", order.get("order_number"))
 
 
 def notify_order_status_once(order: dict) -> None:
-    if order.get("status_notification_sent_at"):
-        return
-    if notifier.send_order_status_update(order):
-        db.mark_order_status_notified(order["order_number"])
+    try:
+        db.enqueue_order_notification(order["order_number"], "order_status")
+    except Exception:
+        logger.exception("Unable to enqueue order status notification for %s", order.get("order_number"))
 
 
 def first_value(query: dict[str, list[str]], key: str) -> str:
@@ -200,6 +206,7 @@ class Request:
     headers: dict[str, str]
     body: bytes = b""
     request_id: str = ""
+    remote_ip: str = ""
     customer: dict | None = None
 
     @property
@@ -214,9 +221,18 @@ class Response:
     content_type: str
     cache_control: str = "no-store"
     headers: list[tuple[str, str]] = field(default_factory=list)
+    content_length: int | None = None
 
 
 class PerfumeryApplication:
+    def __init__(self) -> None:
+        self._site_cache: dict | None = None
+        self._site_cache_expires_at = 0.0
+        self._site_cache_lock = threading.Lock()
+        self._home_cache: dict | None = None
+        self._home_cache_expires_at = 0.0
+        self._home_cache_lock = threading.Lock()
+
     def __call__(self, environ, start_response):
         started_at = time.perf_counter()
         request_id = environ.get("HTTP_X_REQUEST_ID") or f"req_{int.from_bytes(os.urandom(6), 'big'):012x}"
@@ -243,7 +259,7 @@ class PerfumeryApplication:
 
         headers = [
             ("Content-Type", response.content_type),
-            ("Content-Length", str(len(response.body))),
+            ("Content-Length", str(response.content_length if response.content_length is not None else len(response.body))),
             ("Cache-Control", response.cache_control),
             ("X-Content-Type-Options", "nosniff"),
             ("Referrer-Policy", "strict-origin-when-cross-origin"),
@@ -288,6 +304,7 @@ class PerfumeryApplication:
                 content_type=response.content_type,
                 cache_control=response.cache_control,
                 headers=response.headers,
+                content_length=response.content_length if response.content_length is not None else len(response.body),
             )
         return response
 
@@ -296,10 +313,10 @@ class PerfumeryApplication:
         query = request.query
 
         if path.startswith("/static/"):
-            return self.serve_file(STATIC_DIR, path.removeprefix("/static/"))
+            return self.serve_file(STATIC_DIR, path.removeprefix("/static/"), request)
 
         if path.startswith("/assets/"):
-            return self.serve_file(ASSETS_DIR, path.removeprefix("/assets/"))
+            return self.serve_file(ASSETS_DIR, path.removeprefix("/assets/"), request)
 
         if path.startswith("/artwork/") and path.endswith(".svg"):
             slug = path.removeprefix("/artwork/").removesuffix(".svg")
@@ -323,8 +340,14 @@ class PerfumeryApplication:
                     {"status": "degraded", "database": "unreachable", "error": str(exc)},
                     status=HTTPStatus.SERVICE_UNAVAILABLE,
                 )
+            redis_ready = rate_limiter.is_ready()
+            ready = ready and redis_ready
             return self.json_response(
-                {"status": "ready" if ready else "degraded", "database": settings.database_engine},
+                {
+                    "status": "ready" if ready else "degraded",
+                    "database": settings.database_engine,
+                    "rate_limit_store": "ready" if redis_ready else "unreachable",
+                },
                 status=HTTPStatus.OK if ready else HTTPStatus.SERVICE_UNAVAILABLE,
             )
 
@@ -359,19 +382,32 @@ class PerfumeryApplication:
             }
             return self.html_response(render_template("account_sign_up.html", context))
 
+        if path.startswith("/account/verify/"):
+            token = path.removeprefix("/account/verify/").split("/", 1)[0]
+            customer = db.verify_customer_email(token)
+            status = "verified" if customer else "invalid"
+            return self.redirect_response(f"/account?verification={status}")
+
         if path == "/account":
             if not request.customer:
                 return self.redirect_response("/account/sign-in?next=/account")
+            is_verified = bool(request.customer.get("email_verified_at"))
             context = {
                 **self.get_site_context(path, request),
                 "page_title": "My account",
-                "orders": db.list_customer_orders(request.customer["id"], request.customer["email"]),
+                "orders": db.list_customer_orders(request.customer["id"]) if is_verified else [],
+                "email_verified": is_verified,
+                "verification_status": first_value(query, "verification"),
+                "local_verification_url": first_value(query, "verify") if not settings.is_production else "",
+                "csrf_token": self.customer_csrf_token(request),
             }
             return self.html_response(render_template("account.html", context))
 
         if path.startswith("/account/orders/"):
             if not request.customer:
                 return self.redirect_response(f"/account/sign-in?{urlencode({'next': path})}")
+            if not request.customer.get("email_verified_at"):
+                return self.redirect_response("/account?verification=required")
             order_number = path.removeprefix("/account/orders/").split("/", 1)[0]
             order = db.get_customer_order(request.customer["id"], request.customer["email"], order_number)
             if order is None:
@@ -562,7 +598,27 @@ class PerfumeryApplication:
 
         if path == "/api/fragrances":
             filters = self.extract_filters(query)
-            return self.json_response({"filters": filters, "items": db.list_fragrances(filters)})
+            try:
+                page = max(1, int(first_value(query, "page") or "1"))
+                per_page = min(100, max(1, int(first_value(query, "per_page") or "24")))
+            except ValueError:
+                raise ValidationError("Page and per_page must be integers.")
+            total_items = db.count_fragrances(filters)
+            total_pages = max(1, (total_items + per_page - 1) // per_page)
+            page = min(page, total_pages)
+            items = db.list_fragrances(filters, limit=per_page, offset=(page - 1) * per_page)
+            return self.json_response(
+                {
+                    "filters": filters,
+                    "items": items,
+                    "pagination": {
+                        "page": page,
+                        "per_page": per_page,
+                        "total_items": total_items,
+                        "total_pages": total_pages,
+                    },
+                }
+            )
 
         if path.startswith("/api/fragrances/"):
             slug = path.removeprefix("/api/fragrances/")
@@ -573,7 +629,9 @@ class PerfumeryApplication:
 
         if path == "/api/cart-items":
             raw_ids = first_value(query, "variant_ids")
-            variant_ids = [int(item) for item in raw_ids.split(",") if item.isdigit()]
+            variant_ids = list(
+                dict.fromkeys(int(item) for item in raw_ids.split(",") if item.isdigit() and int(item) > 0)
+            )[:100]
             return self.json_response({"items": db.get_cart_items(variant_ids)})
 
         if path.startswith("/api/orders/"):
@@ -598,37 +656,22 @@ class PerfumeryApplication:
             return self.html_response(render_template("policy.html", context))
 
         if path == "/":
-            featured = []
-            seen_featured_slugs = set()
-            for group in (
-                db.list_fragrances({"brand": "Creed"}, limit=3),
-                db.get_featured(9),
-                db.list_fragrances(limit=9),
-            ):
-                for item in group:
-                    if item["slug"] in seen_featured_slugs:
-                        continue
-                    featured.append(item)
-                    seen_featured_slugs.add(item["slug"])
-                    if len(featured) >= 9:
-                        break
-                if len(featured) >= 9:
-                    break
+            home_data = self.cached_home_data()
             context = {
                 **self.get_site_context(path, request),
                 "page_title": "Luxury niche and designer fragrances",
                 "hero_image": "/assets/hero6.jpg",
                 "hero_images": [
                     "/assets/hero6.jpg",
-                    "/assets/louis-vuitton-pink-hero.png",
+                    "/assets/louis-vuitton-pink-hero.webp",
                     "/assets/louis-vuitton-on-the-beach.jpg",
                 ],
                 "showcase_image": "/assets/louis-vuitton-on-the-beach.jpg",
-                "motion_video": "/assets/louis-vuitton.mp4",
+                "motion_video": "/assets/louis-vuitton-mobile.mp4",
                 "motion_poster": "/assets/louis-vuitton-on-the-beach.jpg",
                 "motion_images": [
                     "/assets/hero6.jpg",
-                    "/assets/louis-vuitton-pink-hero.png",
+                    "/assets/louis-vuitton-pink-hero.webp",
                     "/assets/louis-vuitton-on-the-beach.jpg",
                 ],
                 "center_discovery": {
@@ -648,9 +691,7 @@ class PerfumeryApplication:
                     "title": "Soft trails, luminous evenings.",
                     "href": "/catalog?gender=her",
                 },
-                "featured": featured,
-                "brands": build_brand_logos(db.get_brand_showcase(16)),
-                "filters": db.list_filters(),
+                **home_data,
             }
             return self.html_response(render_template("home.html", context))
 
@@ -658,11 +699,11 @@ class PerfumeryApplication:
             context = {
                 **self.get_site_context(path, request),
                 "page_title": "Animation Lab",
-                "motion_video": "/assets/louis-vuitton.mp4",
+                "motion_video": "/assets/louis-vuitton-mobile.mp4",
                 "motion_poster": "/assets/louis-vuitton-on-the-beach.jpg",
                 "motion_images": [
                     "/assets/hero6.jpg",
-                    "/assets/louis-vuitton-pink-hero.png",
+                    "/assets/louis-vuitton-pink-hero.webp",
                     "/assets/louis-vuitton-on-the-beach.jpg",
                 ],
                 "center_discovery": {
@@ -687,7 +728,7 @@ class PerfumeryApplication:
 
         if path == "/catalog":
             filters = self.extract_filters(query)
-            per_page = 48
+            per_page = 24
             try:
                 page = max(1, int(first_value(query, "page") or "1"))
             except ValueError:
@@ -710,6 +751,7 @@ class PerfumeryApplication:
                 "pagination": self.catalog_pagination(filters, page, total_pages),
                 "filters": db.list_filters(),
                 "active_filters": filters,
+                "active_filter_chips": self.catalog_filter_chips(filters),
                 "search_suggestion": search_suggestion,
                 "search_suggestion_href": suggestion_href,
             }
@@ -762,6 +804,9 @@ class PerfumeryApplication:
         path = request.path
 
         if path == "/account/sign-up":
+            limited = self.enforce_rate_limit(request, "account-sign-up", 5, 3600)
+            if limited:
+                return limited
             fields = self.read_form_body(request)
             try:
                 password = fields.get("password", "")
@@ -772,9 +817,15 @@ class PerfumeryApplication:
                     fields.get("email", ""),
                     password,
                 )
+                verification_token = db.create_email_verification(customer["id"])
                 session_token = db.create_customer_session(customer["id"])
+                verification_url = self.absolute_url(request, f"/account/verify/{verification_token}")
+                db.enqueue_email_verification(customer, verification_url)
+                destination = "/account"
+                if not settings.is_production:
+                    destination += "?" + urlencode({"verify": f"/account/verify/{verification_token}"})
                 return self.redirect_response(
-                    "/account",
+                    destination,
                     headers=[("Set-Cookie", self.build_customer_cookie(session_token))],
                 )
             except ValidationError as exc:
@@ -790,6 +841,9 @@ class PerfumeryApplication:
                 return self.html_response(render_template("account_sign_up.html", context), status=HTTPStatus.UNPROCESSABLE_ENTITY)
 
         if path == "/account/sign-in":
+            limited = self.enforce_rate_limit(request, "account-sign-in", 10, 900)
+            if limited:
+                return limited
             fields = self.read_form_body(request)
             next_path = self.safe_next_path(fields.get("next", "") or "/account")
             customer = db.authenticate_customer(fields.get("email", ""), fields.get("password", ""))
@@ -808,13 +862,36 @@ class PerfumeryApplication:
             )
 
         if path == "/account/sign-out":
+            fields = self.read_form_body(request)
+            if not request.customer or not self.validate_customer_csrf(request, fields):
+                return self.json_response({"error": "Invalid account form token."}, status=HTTPStatus.FORBIDDEN)
             db.delete_customer_session(self.customer_cookie_value(request))
             return self.redirect_response(
                 "/",
                 headers=[("Set-Cookie", self.clear_customer_cookie())],
             )
 
+        if path == "/account/resend-verification":
+            if not request.customer:
+                return self.redirect_response("/account/sign-in")
+            fields = self.read_form_body(request)
+            if not self.validate_customer_csrf(request, fields):
+                return self.json_response({"error": "Invalid account form token."}, status=HTTPStatus.FORBIDDEN)
+            limited = self.enforce_rate_limit(request, "account-verification", 3, 3600)
+            if limited:
+                return limited
+            token = db.create_email_verification(request.customer["id"])
+            verification_url = self.absolute_url(request, f"/account/verify/{token}")
+            db.enqueue_email_verification(request.customer, verification_url)
+            destination = "/account?verification=sent"
+            if not settings.is_production:
+                destination += "&" + urlencode({"verify": f"/account/verify/{token}"})
+            return self.redirect_response(destination)
+
         if path == "/admin/login":
+            limited = self.enforce_rate_limit(request, "admin-login", 10, 900)
+            if limited:
+                return limited
             fields = self.read_form_body(request)
             submitted_token = fields.get("admin_token", "")
             if settings.admin_token and secrets.compare_digest(submitted_token, settings.admin_token):
@@ -988,6 +1065,9 @@ class PerfumeryApplication:
             return self.redirect_response(f"/admin/orders/{order_number}")
 
         if path == "/api/concierge":
+            limited = self.enforce_rate_limit(request, "concierge", 20, 3600)
+            if limited:
+                return limited
             if not settings.ai_concierge_enabled:
                 return self.json_response(
                     {"error": "The scent concierge is currently unavailable."},
@@ -1011,6 +1091,9 @@ class PerfumeryApplication:
                 )
 
         if path == "/api/orders":
+            limited = self.enforce_rate_limit(request, "orders", 10, 600)
+            if limited:
+                return limited
             if not settings.enable_manual_checkout:
                 return self.json_response(
                     {"error": "Manual checkout is disabled on this deployment."},
@@ -1024,7 +1107,12 @@ class PerfumeryApplication:
                 customer = payload.get("customer") or {}
                 if customer.get("payment_method") in ONLINE_PAYMENT_METHODS:
                     raise ValidationError("Use the Razorpay checkout flow for online payments.")
-                order = db.create_order(payload, customer_id=customer_id)
+                idempotency_key = self.checkout_idempotency_key(request)
+                order = db.create_order(
+                    payload,
+                    customer_id=customer_id,
+                    idempotency_key=idempotency_key,
+                )
                 notify_order_once(order)
                 return self.json_response({"order": order}, status=HTTPStatus.CREATED)
             except ValidationError as exc:
@@ -1035,6 +1123,9 @@ class PerfumeryApplication:
                 return self.json_response({"error": f"Unable to place order: {exc}"}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
 
         if path == "/api/checkout/razorpay-order":
+            limited = self.enforce_rate_limit(request, "razorpay-order", 10, 600)
+            if limited:
+                return limited
             if not razorpay.enabled:
                 return self.json_response(
                     {"error": "Razorpay is not configured on this deployment."},
@@ -1048,39 +1139,43 @@ class PerfumeryApplication:
                     payload = self.attach_account_to_payload(payload, request.customer)
                 customer = payload.get("customer") or {}
                 items = payload.get("items") or []
+                idempotency_key = self.checkout_idempotency_key(request)
                 if customer.get("payment_method") not in ONLINE_PAYMENT_METHODS:
                     raise ValidationError("Please choose UPI, netbanking, or card for online payment.")
-                snapshot = db.preview_order(items)
-                gateway_order = razorpay.create_order(
-                    amount_subunits=snapshot["total_inr"] * 100,
-                    currency=settings.currency,
-                    receipt=f"{settings.order_prefix}-{random_suffix()}",
-                    notes={
-                        "customer_name": customer.get("customer_name", "")[:40],
-                        "email": customer.get("email", "")[:40],
-                    },
-                )
-                local_order = db.create_pending_razorpay_order(
-                    customer=customer,
-                    items=items,
-                    gateway_order_id=gateway_order["id"],
-                    customer_id=customer_id,
-                )
-                return self.json_response(
-                    {
-                        "checkout": {
-                            "razorpay_key_id": settings.razorpay_key_id,
-                            "gateway_order_id": gateway_order["id"],
-                            "amount_subunits": gateway_order["amount"],
-                            "currency": gateway_order["currency"],
-                            "local_order_number": local_order["order_number"],
-                            "customer_name": local_order["customer_name"],
-                            "email": local_order["email"],
-                            "phone": local_order["phone"],
-                        }
-                    },
-                    status=HTTPStatus.CREATED,
-                )
+                existing = db.get_order_by_idempotency_key(idempotency_key)
+                if existing is not None:
+                    return self.razorpay_checkout_response(existing)
+                lock_token = rate_limiter.acquire_lock(f"razorpay:{idempotency_key}", ttl_seconds=45)
+                if lock_token is None:
+                    return self.json_response(
+                        {"error": "This checkout is already being prepared. Please retry in a moment."},
+                        status=HTTPStatus.CONFLICT,
+                        headers=[("Retry-After", "2")],
+                    )
+                try:
+                    existing = db.get_order_by_idempotency_key(idempotency_key)
+                    if existing is not None:
+                        return self.razorpay_checkout_response(existing)
+                    snapshot = db.preview_order(items)
+                    gateway_order = razorpay.create_order(
+                        amount_subunits=snapshot["total_inr"] * 100,
+                        currency=settings.currency,
+                        receipt=f"{settings.order_prefix}-{random_suffix()}",
+                        notes={
+                            "customer_name": customer.get("customer_name", "")[:40],
+                            "email": customer.get("email", "")[:40],
+                        },
+                    )
+                    local_order = db.create_pending_razorpay_order(
+                        customer=customer,
+                        items=items,
+                        gateway_order_id=gateway_order["id"],
+                        customer_id=customer_id,
+                        idempotency_key=idempotency_key,
+                    )
+                    return self.razorpay_checkout_response(local_order)
+                finally:
+                    rate_limiter.release_lock(f"razorpay:{idempotency_key}", lock_token)
             except ValidationError as exc:
                 return self.json_response({"error": str(exc)}, status=HTTPStatus.UNPROCESSABLE_ENTITY)
             except PaymentGatewayError as exc:
@@ -1094,6 +1189,9 @@ class PerfumeryApplication:
                 )
 
         if path == "/api/payments/razorpay/verify":
+            limited = self.enforce_rate_limit(request, "razorpay-verify", 20, 600)
+            if limited:
+                return limited
             try:
                 payload = self.read_json_body(request)
                 local_order_number = str(payload.get("local_order_number", "")).strip()
@@ -1137,6 +1235,9 @@ class PerfumeryApplication:
                 )
 
         if path == "/api/payments/razorpay/failure":
+            limited = self.enforce_rate_limit(request, "razorpay-failure", 20, 600)
+            if limited:
+                return limited
             try:
                 payload = self.read_json_body(request)
                 local_order_number = str(payload.get("local_order_number", "")).strip()
@@ -1210,6 +1311,16 @@ class PerfumeryApplication:
             query = urlencode(params)
             return f"/catalog?{query}" if query else "/catalog"
 
+        candidates = {1, total_pages, page - 2, page - 1, page, page + 1, page + 2}
+        page_numbers = [number for number in sorted(candidates) if 1 <= number <= total_pages]
+        pages: list[dict[str, Any]] = []
+        previous_number = 0
+        for number in page_numbers:
+            if previous_number and number - previous_number > 1:
+                pages.append({"ellipsis": True})
+            pages.append({"number": number, "href": href(number), "current": number == page})
+            previous_number = number
+
         return {
             "page": page,
             "total_pages": total_pages,
@@ -1217,10 +1328,36 @@ class PerfumeryApplication:
             "has_next": page < total_pages,
             "previous_href": href(page - 1) if page > 1 else "",
             "next_href": href(page + 1) if page < total_pages else "",
+            "pages": pages,
         }
 
+    def catalog_filter_chips(self, filters: dict[str, str]) -> list[dict[str, str]]:
+        labels = {
+            "search": "Search",
+            "gender": "For",
+            "brand": "House",
+            "collection_type": "Collection",
+            "family": "Family",
+            "sale_type": "Type",
+        }
+        chips = []
+        for key, label in labels.items():
+            value = filters.get(key, "")
+            if not value:
+                continue
+            remaining = {name: item for name, item in filters.items() if item and name != key}
+            query = urlencode(remaining)
+            chips.append(
+                {
+                    "label": f"{label}: {titleize_enum(value)}",
+                    "href": f"/catalog?{query}" if query else "/catalog",
+                }
+            )
+        return chips
+
     def get_site_context(self, path: str, request: Request | None = None) -> dict:
-        metrics = db.get_metrics()
+        cached_site_data = self.cached_site_data()
+        metrics = cached_site_data["metrics"]
         preview_label = os.getenv("PREVIEW_LABEL", "").strip()
         if not preview_label and not settings.is_production:
             preview_label = settings.app_env.upper()
@@ -1262,7 +1399,8 @@ class PerfumeryApplication:
                 {"href": "/#brands", "label": "Brands", "mega": "brands"},
                 {"href": "/#scent-concierge", "label": "Concierge"},
             ],
-            "nav_brand_groups": db.list_brand_groups(),
+            "nav_brand_groups": cached_site_data["brand_groups"],
+            "nav_brand_totals": cached_site_data["brand_totals"],
             "support_brands": [
                 "Creed",
                 "Amouage",
@@ -1278,6 +1416,56 @@ class PerfumeryApplication:
             ],
         }
 
+    def cached_site_data(self) -> dict:
+        now = time.monotonic()
+        if self._site_cache is not None and now < self._site_cache_expires_at:
+            return self._site_cache
+        with self._site_cache_lock:
+            now = time.monotonic()
+            if self._site_cache is None or now >= self._site_cache_expires_at:
+                brand_groups = db.list_brand_groups()
+                self._site_cache = {
+                    "metrics": db.get_metrics(),
+                    "brand_groups": {
+                        collection: sorted(items, key=lambda item: (-int(item["count"]), item["name"]))[:18]
+                        for collection, items in brand_groups.items()
+                    },
+                    "brand_totals": {collection: len(items) for collection, items in brand_groups.items()},
+                }
+                self._site_cache_expires_at = now + 60
+        return self._site_cache
+
+    def cached_home_data(self) -> dict:
+        now = time.monotonic()
+        if self._home_cache is not None and now < self._home_cache_expires_at:
+            return self._home_cache
+        with self._home_cache_lock:
+            now = time.monotonic()
+            if self._home_cache is None or now >= self._home_cache_expires_at:
+                featured = []
+                seen_slugs = set()
+                for group in (
+                    db.list_fragrances({"brand": "Creed"}, limit=3),
+                    db.get_featured(9),
+                    db.list_fragrances(limit=9),
+                ):
+                    for item in group:
+                        if item["slug"] in seen_slugs:
+                            continue
+                        featured.append(item)
+                        seen_slugs.add(item["slug"])
+                        if len(featured) >= 9:
+                            break
+                    if len(featured) >= 9:
+                        break
+                self._home_cache = {
+                    "featured": featured,
+                    "brands": build_brand_logos(db.get_brand_showcase(16)),
+                    "filters": db.list_filters(),
+                }
+                self._home_cache_expires_at = now + 60
+        return self._home_cache
+
     def attach_account_to_payload(self, payload: dict, customer: dict) -> dict:
         updated = dict(payload)
         customer_payload = dict(updated.get("customer") or {})
@@ -1288,8 +1476,14 @@ class PerfumeryApplication:
         return updated
 
     def read_json_body(self, request: Request) -> dict:
+        content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        if content_type != "application/json":
+            raise ValidationError("Content-Type must be application/json.")
         body = request.body or b"{}"
-        return json.loads(body.decode("utf-8"))
+        payload = json.loads(body.decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise ValidationError("JSON body must be an object.")
+        return payload
 
     def read_form_body(self, request: Request) -> dict[str, str]:
         fields = parse_qs(request.body.decode("utf-8"), keep_blank_values=True)
@@ -1800,6 +1994,68 @@ class PerfumeryApplication:
             hashlib.sha256,
         ).hexdigest()
 
+    def customer_csrf_token(self, request: Request) -> str:
+        cookie = self.customer_cookie_value(request)
+        if not cookie:
+            return ""
+        return hmac.new(
+            APP_HMAC_SECRET.encode("utf-8"),
+            f"customer-csrf:{cookie}".encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+
+    def validate_customer_csrf(self, request: Request, fields: dict[str, str]) -> bool:
+        expected = self.customer_csrf_token(request)
+        return bool(expected) and secrets.compare_digest(fields.get("csrf_token", ""), expected)
+
+    def absolute_url(self, request: Request, path: str) -> str:
+        if settings.base_url:
+            return f"{settings.base_url}{path}"
+        host = request.headers.get("host", f"127.0.0.1:{settings.port}")
+        if not re.fullmatch(r"[A-Za-z0-9.:[\]-]+", host):
+            host = f"127.0.0.1:{settings.port}"
+        scheme = request.headers.get("x-forwarded-proto", "http").split(",", 1)[0].strip()
+        if scheme not in {"http", "https"}:
+            scheme = "http"
+        return f"{scheme}://{host}{path}"
+
+    def enforce_rate_limit(
+        self, request: Request, scope: str, limit: int, window_seconds: int
+    ) -> Response | None:
+        allowed, retry_after = rate_limiter.check(
+            f"{scope}:{request.remote_ip or 'unknown'}", limit, window_seconds
+        )
+        if allowed:
+            return None
+        return self.json_response(
+            {"error": "Too many requests. Please wait and try again."},
+            status=HTTPStatus.TOO_MANY_REQUESTS,
+            headers=[("Retry-After", str(retry_after))],
+        )
+
+    def checkout_idempotency_key(self, request: Request) -> str:
+        key = request.headers.get("idempotency-key", "").strip()
+        if len(key) < 16 or len(key) > 128 or not re.fullmatch(r"[A-Za-z0-9._:-]+", key):
+            raise ValidationError("A valid Idempotency-Key header is required for checkout.")
+        return key
+
+    def razorpay_checkout_response(self, order: dict) -> Response:
+        return self.json_response(
+            {
+                "checkout": {
+                    "razorpay_key_id": settings.razorpay_key_id,
+                    "gateway_order_id": order["gateway_order_id"],
+                    "amount_subunits": int(order["total_inr"]) * 100,
+                    "currency": settings.currency,
+                    "local_order_number": order["order_number"],
+                    "customer_name": order["customer_name"],
+                    "email": order["email"],
+                    "phone": order["phone"],
+                }
+            },
+            status=HTTPStatus.CREATED,
+        )
+
     def validate_admin_csrf(self, request: Request, fields: dict[str, str]) -> Response | None:
         if secrets.compare_digest(fields.get("csrf_token", ""), self.admin_csrf_token(request)):
             return None
@@ -2033,6 +2289,7 @@ class PerfumeryApplication:
         status: HTTPStatus = HTTPStatus.OK,
         cache_control: str = "no-store",
         headers: list[tuple[str, str]] | None = None,
+        content_length: int | None = None,
     ) -> Response:
         return Response(
             status=status,
@@ -2040,6 +2297,7 @@ class PerfumeryApplication:
             content_type=content_type,
             cache_control=cache_control,
             headers=headers or [],
+            content_length=content_length,
         )
 
     def render_404(self, path: str) -> Response:
@@ -2050,7 +2308,7 @@ class PerfumeryApplication:
         }
         return self.html_response(render_template("404.html", context), status=HTTPStatus.NOT_FOUND)
 
-    def serve_file(self, root: Path, relative_path: str) -> Response:
+    def serve_file(self, root: Path, relative_path: str, request: Request) -> Response:
         file_path = (root / relative_path).resolve()
         root_resolved = root.resolve()
 
@@ -2062,10 +2320,50 @@ class PerfumeryApplication:
 
         mime_type, _ = mimetypes.guess_type(str(file_path))
         content_type = mime_type or "application/octet-stream"
+        file_size = file_path.stat().st_size
+        response_headers = [("Accept-Ranges", "bytes")]
+        range_header = request.headers.get("range", "")
+        if range_header:
+            match = re.fullmatch(r"bytes=(\d*)-(\d*)", range_header.strip())
+            if not match or (not match.group(1) and not match.group(2)):
+                return self.bytes_response(
+                    b"",
+                    content_type=content_type,
+                    status=HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE,
+                    headers=[("Content-Range", f"bytes */{file_size}"), *response_headers],
+                )
+            if match.group(1):
+                start = int(match.group(1))
+                end = int(match.group(2)) if match.group(2) else file_size - 1
+            else:
+                suffix_length = int(match.group(2))
+                start = max(0, file_size - suffix_length)
+                end = file_size - 1
+            if start >= file_size or start > end:
+                return self.bytes_response(
+                    b"",
+                    content_type=content_type,
+                    status=HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE,
+                    headers=[("Content-Range", f"bytes */{file_size}"), *response_headers],
+                )
+            end = min(end, file_size - 1)
+            length = end - start + 1
+            with file_path.open("rb") as handle:
+                handle.seek(start)
+                body = handle.read(length)
+            return self.bytes_response(
+                body,
+                content_type=content_type,
+                status=HTTPStatus.PARTIAL_CONTENT,
+                cache_control=f"public, max-age={settings.static_cache_max_age_seconds}",
+                headers=[("Content-Range", f"bytes {start}-{end}/{file_size}"), *response_headers],
+            )
         return self.bytes_response(
             file_path.read_bytes(),
             content_type=content_type,
             cache_control=f"public, max-age={settings.static_cache_max_age_seconds}",
+            headers=response_headers,
+            content_length=file_size,
         )
 
     def _build_request(self, environ, request_id: str) -> Request:
@@ -2099,6 +2397,7 @@ class PerfumeryApplication:
             headers=headers,
             body=body,
             request_id=request_id,
+            remote_ip=(headers.get("x-forwarded-for", "").split(",", 1)[0].strip() or environ.get("REMOTE_ADDR", "")),
         )
 
     def _extract_headers(self, environ) -> dict[str, str]:

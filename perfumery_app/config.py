@@ -52,6 +52,8 @@ class Settings:
     razorpay_webhook_secret: str
     enable_manual_checkout: bool
     payment_reservation_minutes: int
+    app_secret_key: str
+    redis_url: str
     admin_token: str
     admin_email: str
     notification_from_email: str
@@ -132,6 +134,8 @@ def load_settings() -> Settings:
         razorpay_webhook_secret=os.getenv("RAZORPAY_WEBHOOK_SECRET", "").strip(),
         enable_manual_checkout=env_flag("ENABLE_MANUAL_CHECKOUT", True),
         payment_reservation_minutes=int(os.getenv("PAYMENT_RESERVATION_MINUTES", "30")),
+        app_secret_key=os.getenv("APP_SECRET_KEY", "").strip(),
+        redis_url=os.getenv("REDIS_URL", "").strip(),
         admin_token=os.getenv("ADMIN_TOKEN", "").strip(),
         admin_email=os.getenv("ADMIN_EMAIL", "").strip(),
         notification_from_email=os.getenv("NOTIFICATION_FROM_EMAIL", "").strip(),

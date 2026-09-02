@@ -7,6 +7,8 @@ The app is now structured for real deployment:
 - WSGI application entrypoint at `server:application`
 - Gunicorn worker process model for horizontal scaling
 - PostgreSQL support for shared order/inventory storage across instances
+- Redis-backed distributed rate limits with a safe local fallback
+- Transactional notification outbox processed by `python worker.py`
 - SQLite retained only as the local/development fallback
 - Readiness and health endpoints:
   - `/healthz`
@@ -37,6 +39,8 @@ Critical production values:
 - `RAZORPAY_KEY_ID=...`
 - `RAZORPAY_KEY_SECRET=...`
 - `RAZORPAY_WEBHOOK_SECRET=...`
+- `APP_SECRET_KEY=...` (at least 32 random characters)
+- `REDIS_URL=rediss://...`
 
 Useful scaling values:
 
@@ -68,6 +72,12 @@ Gunicorn entrypoint:
 ```bash
 cd /Users/devawasthi/perfumery
 gunicorn server:application -c gunicorn.conf.py
+```
+
+Run the notification and reservation worker as a separate process:
+
+```bash
+python worker.py
 ```
 
 ## Docker
@@ -103,4 +113,11 @@ docker run --env-file .env -p 8780:8780 the-scentist
 - Run more than one app instance in production.
 - Use managed PostgreSQL backups and point-in-time recovery.
 - Put CDN caching in front of static responses.
+- Run exactly one or more worker processes; outbox row locking safely supports horizontal worker scaling.
+
+Before each release, run a read-only concurrency smoke test against staging:
+
+```bash
+python3 scripts/load_smoke.py --base-url https://staging.example.com --requests 1000 --concurrency 50
+```
 - Keep `ENABLE_MANUAL_CHECKOUT=true` only if you want non-Razorpay payment paths live.

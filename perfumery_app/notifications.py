@@ -79,6 +79,23 @@ class OrderNotifier:
             ) and delivered
         return delivered
 
+    def send_email_verification(self, customer: dict[str, Any], verification_url: str) -> bool:
+        if not self.enabled:
+            logger.info("Email verification delivery skipped because SMTP is not configured.")
+            return False
+        subject = "Verify your The Scentist account"
+        body = "\n".join(
+            [
+                f"Hello {customer['full_name']},",
+                "",
+                "Verify your email to securely connect past and future orders to your account:",
+                verification_url,
+                "",
+                "This link expires in 24 hours. If you did not create this account, ignore this email.",
+            ]
+        )
+        return self._send(customer["email"], subject, body)
+
     def _send(self, recipient: str, subject: str, body: str) -> bool:
         try:
             self._send_message(recipient, subject, body)

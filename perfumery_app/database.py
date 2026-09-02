@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from difflib import SequenceMatcher
 import json
-import random
 import re
 import secrets
 import sqlite3
@@ -218,9 +217,23 @@ class Database:
             for statement in self._schema_statements():
                 conn.execute(statement)
             self._ensure_schema_upgrades(conn)
+            self._upgrade_asset_urls(conn)
             if self.settings.auto_seed_catalog:
                 self._sync_catalog(conn)
             conn.commit()
+
+    def _upgrade_asset_urls(self, conn: DatabaseConnection) -> None:
+        optimized_assets = {
+            "/assets/creed-aventus.png": "/assets/creed-aventus.webp",
+            "/assets/bleu-de-chanel-parfum.png": "/assets/bleu-de-chanel-parfum.webp",
+            "/assets/paco-rabanne-1-million-elixir.png": "/assets/paco-rabanne-1-million-elixir.webp",
+            "/assets/paco-rabanne-1-million.png": "/assets/paco-rabanne-1-million.webp",
+            "/assets/paco-rabanne-1-million-lucky.png": "/assets/paco-rabanne-1-million-lucky.webp",
+            "/assets/paco-rabanne-1-million-golden-oud.png": "/assets/paco-rabanne-1-million-golden-oud.webp",
+        }
+        for old_url, new_url in optimized_assets.items():
+            conn.execute("UPDATE fragrances SET image_url = ? WHERE image_url = ?", (new_url, old_url))
+            conn.execute("UPDATE fragrances SET photo_icon_url = ? WHERE photo_icon_url = ?", (new_url, old_url))
 
     def _prepare_initialization_connection(self, conn: DatabaseConnection) -> None:
         if conn.dialect != "postgres":
@@ -298,8 +311,20 @@ class Database:
                 full_name TEXT NOT NULL,
                 email TEXT NOT NULL UNIQUE,
                 password_hash TEXT NOT NULL,
+                email_verified_at TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
                 last_login_at TEXT NOT NULL DEFAULT ''
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS customer_email_verifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                customer_id INTEGER NOT NULL,
+                token_hash TEXT NOT NULL UNIQUE,
+                expires_at TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                used_at TEXT NOT NULL DEFAULT '',
+                FOREIGN KEY(customer_id) REFERENCES customers(id) ON DELETE CASCADE
             )
             """,
             """
@@ -319,6 +344,7 @@ class Database:
                 customer_id INTEGER DEFAULT NULL,
                 order_number TEXT NOT NULL UNIQUE,
                 public_token TEXT NOT NULL UNIQUE,
+                idempotency_key TEXT NOT NULL DEFAULT '',
                 customer_name TEXT NOT NULL,
                 email TEXT NOT NULL,
                 phone TEXT NOT NULL,
@@ -376,6 +402,40 @@ class Database:
                 FOREIGN KEY(variant_id) REFERENCES variants(id)
             )
             """,
+            """
+            CREATE TABLE IF NOT EXISTS notification_outbox (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dedupe_key TEXT NOT NULL UNIQUE,
+                event_type TEXT NOT NULL,
+                order_number TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                attempts INTEGER NOT NULL DEFAULT 0,
+                available_at TEXT NOT NULL,
+                locked_at TEXT NOT NULL DEFAULT '',
+                last_error TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                sent_at TEXT NOT NULL DEFAULT '',
+                FOREIGN KEY(order_number) REFERENCES orders(order_number) ON DELETE CASCADE
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS account_email_outbox (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dedupe_key TEXT NOT NULL UNIQUE,
+                customer_id INTEGER NOT NULL,
+                recipient TEXT NOT NULL,
+                full_name TEXT NOT NULL,
+                verification_url TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                attempts INTEGER NOT NULL DEFAULT 0,
+                available_at TEXT NOT NULL,
+                locked_at TEXT NOT NULL DEFAULT '',
+                last_error TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                sent_at TEXT NOT NULL DEFAULT '',
+                FOREIGN KEY(customer_id) REFERENCES customers(id) ON DELETE CASCADE
+            )
+            """,
             "CREATE INDEX IF NOT EXISTS idx_fragrances_brand ON fragrances (brand)",
             "CREATE INDEX IF NOT EXISTS idx_fragrances_collection_type ON fragrances (collection_type)",
             "CREATE INDEX IF NOT EXISTS idx_fragrances_gender ON fragrances (gender)",
@@ -384,11 +444,15 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_customers_email ON customers (email)",
             "CREATE INDEX IF NOT EXISTS idx_customer_sessions_customer_id ON customer_sessions (customer_id)",
             "CREATE INDEX IF NOT EXISTS idx_customer_sessions_expires_at ON customer_sessions (expires_at)",
+            "CREATE INDEX IF NOT EXISTS idx_customer_verifications_customer_id ON customer_email_verifications (customer_id)",
+            "CREATE INDEX IF NOT EXISTS idx_customer_verifications_expires_at ON customer_email_verifications (expires_at)",
             "CREATE INDEX IF NOT EXISTS idx_orders_email ON orders (email)",
             "CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders (created_at)",
             "CREATE INDEX IF NOT EXISTS idx_orders_payment_status ON orders (payment_status)",
             "CREATE INDEX IF NOT EXISTS idx_orders_gateway_order_id ON orders (gateway_order_id)",
             "CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items (order_id)",
+            "CREATE INDEX IF NOT EXISTS idx_notification_outbox_ready ON notification_outbox (status, available_at)",
+            "CREATE INDEX IF NOT EXISTS idx_account_email_outbox_ready ON account_email_outbox (status, available_at)",
         ]
 
     def _postgres_schema_statements(self) -> list[str]:
@@ -441,8 +505,19 @@ class Database:
                 full_name TEXT NOT NULL,
                 email TEXT NOT NULL UNIQUE,
                 password_hash TEXT NOT NULL,
+                email_verified_at TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
                 last_login_at TEXT NOT NULL DEFAULT ''
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS customer_email_verifications (
+                id BIGSERIAL PRIMARY KEY,
+                customer_id BIGINT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+                token_hash TEXT NOT NULL UNIQUE,
+                expires_at TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                used_at TEXT NOT NULL DEFAULT ''
             )
             """,
             """
@@ -461,6 +536,7 @@ class Database:
                 customer_id BIGINT DEFAULT NULL REFERENCES customers(id) ON DELETE SET NULL,
                 order_number TEXT NOT NULL UNIQUE,
                 public_token TEXT NOT NULL UNIQUE,
+                idempotency_key TEXT NOT NULL DEFAULT '',
                 customer_name TEXT NOT NULL,
                 email TEXT NOT NULL,
                 phone TEXT NOT NULL,
@@ -516,6 +592,38 @@ class Database:
                 line_total_inr INTEGER NOT NULL
             )
             """,
+            """
+            CREATE TABLE IF NOT EXISTS notification_outbox (
+                id BIGSERIAL PRIMARY KEY,
+                dedupe_key TEXT NOT NULL UNIQUE,
+                event_type TEXT NOT NULL,
+                order_number TEXT NOT NULL REFERENCES orders(order_number) ON DELETE CASCADE,
+                status TEXT NOT NULL DEFAULT 'pending',
+                attempts INTEGER NOT NULL DEFAULT 0,
+                available_at TEXT NOT NULL,
+                locked_at TEXT NOT NULL DEFAULT '',
+                last_error TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                sent_at TEXT NOT NULL DEFAULT ''
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS account_email_outbox (
+                id BIGSERIAL PRIMARY KEY,
+                dedupe_key TEXT NOT NULL UNIQUE,
+                customer_id BIGINT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+                recipient TEXT NOT NULL,
+                full_name TEXT NOT NULL,
+                verification_url TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                attempts INTEGER NOT NULL DEFAULT 0,
+                available_at TEXT NOT NULL,
+                locked_at TEXT NOT NULL DEFAULT '',
+                last_error TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                sent_at TEXT NOT NULL DEFAULT ''
+            )
+            """,
             "CREATE INDEX IF NOT EXISTS idx_fragrances_brand ON fragrances (brand)",
             "CREATE INDEX IF NOT EXISTS idx_fragrances_collection_type ON fragrances (collection_type)",
             "CREATE INDEX IF NOT EXISTS idx_fragrances_gender ON fragrances (gender)",
@@ -524,14 +632,25 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_customers_email ON customers (email)",
             "CREATE INDEX IF NOT EXISTS idx_customer_sessions_customer_id ON customer_sessions (customer_id)",
             "CREATE INDEX IF NOT EXISTS idx_customer_sessions_expires_at ON customer_sessions (expires_at)",
+            "CREATE INDEX IF NOT EXISTS idx_customer_verifications_customer_id ON customer_email_verifications (customer_id)",
+            "CREATE INDEX IF NOT EXISTS idx_customer_verifications_expires_at ON customer_email_verifications (expires_at)",
             "CREATE INDEX IF NOT EXISTS idx_orders_email ON orders (email)",
             "CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders (created_at)",
             "CREATE INDEX IF NOT EXISTS idx_orders_payment_status ON orders (payment_status)",
             "CREATE INDEX IF NOT EXISTS idx_orders_gateway_order_id ON orders (gateway_order_id)",
             "CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items (order_id)",
+            "CREATE INDEX IF NOT EXISTS idx_notification_outbox_ready ON notification_outbox (status, available_at)",
+            "CREATE INDEX IF NOT EXISTS idx_account_email_outbox_ready ON account_email_outbox (status, available_at)",
         ]
 
     def _ensure_schema_upgrades(self, conn: DatabaseConnection) -> None:
+        self._ensure_columns(
+            conn,
+            "customers",
+            {
+                "email_verified_at": "TEXT NOT NULL DEFAULT ''",
+            },
+        )
         self._ensure_columns(
             conn,
             "fragrances",
@@ -565,6 +684,7 @@ class Database:
                 "payment_gateway": "TEXT NOT NULL DEFAULT ''",
                 "payment_status": "TEXT NOT NULL DEFAULT ''",
                 "public_token": "TEXT NOT NULL DEFAULT ''",
+                "idempotency_key": "TEXT NOT NULL DEFAULT ''",
                 "gateway_order_id": "TEXT NOT NULL DEFAULT ''",
                 "gateway_payment_id": "TEXT NOT NULL DEFAULT ''",
                 "gateway_signature": "TEXT NOT NULL DEFAULT ''",
@@ -590,6 +710,14 @@ class Database:
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_public_token ON orders (public_token)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_customer_id ON orders (customer_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_email ON orders (email)")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_idempotency_key "
+            "ON orders (idempotency_key) WHERE idempotency_key != ''"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_orders_reservation_expiry "
+            "ON orders (stock_reserved, reservation_expires_at)"
+        )
 
     def _backfill_order_tokens(self, conn: DatabaseConnection) -> None:
         rows = conn.execute(
@@ -743,12 +871,12 @@ class Database:
         email = str(email or "").strip().lower()
         password = str(password or "")
 
-        if len(full_name) < 2:
+        if len(full_name) < 2 or len(full_name) > 100:
             raise ValidationError("Full name is required.")
-        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        if len(email) > 254 or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
             raise ValidationError("Please enter a valid email address.")
-        if len(password) < 8:
-            raise ValidationError("Password must be at least 8 characters.")
+        if len(password) < 8 or len(password) > 128:
+            raise ValidationError("Password must be between 8 and 128 characters.")
 
         now = self._now()
         with self.connect() as conn:
@@ -762,8 +890,8 @@ class Database:
                     raise ValidationError("An account already exists for this email.")
                 conn.execute(
                     """
-                    INSERT INTO customers (full_name, email, password_hash, created_at, last_login_at)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO customers (full_name, email, password_hash, email_verified_at, created_at, last_login_at)
+                    VALUES (?, ?, ?, '', ?, ?)
                     """,
                     (full_name, email, self._hash_password(password), now, now),
                 )
@@ -773,7 +901,6 @@ class Database:
                 ).fetchone()
                 if customer_row is None:
                     raise ValidationError("Account could not be loaded after sign up.")
-                self._claim_customer_orders(conn, int(customer_row["id"]), email)
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -799,7 +926,6 @@ class Database:
                 "UPDATE customers SET last_login_at = ? WHERE id = ?",
                 (now, row["id"]),
             )
-            self._claim_customer_orders(conn, int(row["id"]), email)
             conn.commit()
 
         return self.get_customer_by_email(email)
@@ -807,7 +933,7 @@ class Database:
     def get_customer_by_email(self, email: str) -> dict[str, Any] | None:
         with self.connect() as conn:
             row = conn.execute(
-                "SELECT id, full_name, email, created_at, last_login_at FROM customers WHERE email = ?",
+                "SELECT id, full_name, email, email_verified_at, created_at, last_login_at FROM customers WHERE email = ?",
                 (str(email or "").strip().lower(),),
             ).fetchone()
         return dict(row) if row else None
@@ -827,6 +953,66 @@ class Database:
             conn.commit()
         return token
 
+    def create_email_verification(self, customer_id: int, hours: int = 24) -> str:
+        token = secrets.token_urlsafe(32)
+        now = self._now()
+        expires = (datetime.utcnow() + timedelta(hours=max(1, hours))).replace(microsecond=0).isoformat() + "Z"
+        with self.connect() as conn:
+            try:
+                conn.begin_write()
+                conn.execute(
+                    "DELETE FROM customer_email_verifications WHERE customer_id = ? AND used_at = ''",
+                    (customer_id,),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO customer_email_verifications
+                        (customer_id, token_hash, expires_at, created_at, used_at)
+                    VALUES (?, ?, ?, ?, '')
+                    """,
+                    (customer_id, self._hash_token(token), expires, now),
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return token
+
+    def verify_customer_email(self, token: str) -> dict[str, Any] | None:
+        token = str(token or "").strip()
+        if not token:
+            return None
+        now = self._now()
+        with self.connect() as conn:
+            try:
+                conn.begin_write()
+                query = """
+                    SELECT v.id AS verification_id, v.customer_id, c.email
+                    FROM customer_email_verifications v
+                    JOIN customers c ON c.id = v.customer_id
+                    WHERE v.token_hash = ? AND v.used_at = '' AND v.expires_at > ?
+                """
+                if conn.dialect == "postgres":
+                    query += " FOR UPDATE"
+                row = conn.execute(query, (self._hash_token(token), now)).fetchone()
+                if row is None:
+                    conn.rollback()
+                    return None
+                conn.execute(
+                    "UPDATE customers SET email_verified_at = ? WHERE id = ?",
+                    (now, row["customer_id"]),
+                )
+                conn.execute(
+                    "UPDATE customer_email_verifications SET used_at = ? WHERE id = ?",
+                    (now, row["verification_id"]),
+                )
+                self._claim_customer_orders(conn, int(row["customer_id"]), str(row["email"]).lower())
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return self.get_customer_by_email(str(row["email"]))
+
     def get_customer_by_session_token(self, token: str) -> dict[str, Any] | None:
         token = str(token or "").strip()
         if not token:
@@ -836,7 +1022,7 @@ class Database:
         with self.connect() as conn:
             row = conn.execute(
                 """
-                SELECT c.id, c.full_name, c.email, c.created_at, c.last_login_at,
+                SELECT c.id, c.full_name, c.email, c.email_verified_at, c.created_at, c.last_login_at,
                        s.expires_at, s.last_seen_at
                 FROM customer_sessions s
                 JOIN customers c ON c.id = s.customer_id
@@ -851,11 +1037,13 @@ class Database:
                 )
                 conn.commit()
                 return None
-            conn.execute(
-                "UPDATE customer_sessions SET last_seen_at = ? WHERE session_token_hash = ?",
-                (now, token_hash),
-            )
-            conn.commit()
+            last_seen_cutoff = (datetime.utcnow() - timedelta(minutes=15)).replace(microsecond=0).isoformat() + "Z"
+            if str(row["last_seen_at"]) < last_seen_cutoff:
+                conn.execute(
+                    "UPDATE customer_sessions SET last_seen_at = ? WHERE session_token_hash = ?",
+                    (now, token_hash),
+                )
+                conn.commit()
         customer = dict(row)
         return customer
 
@@ -870,20 +1058,18 @@ class Database:
             )
             conn.commit()
 
-    def list_customer_orders(self, customer_id: int, email: str, limit: int = 50) -> list[dict[str, Any]]:
-        self.expire_stale_reservations()
-        email = str(email or "").strip().lower()
+    def list_customer_orders(self, customer_id: int, email: str = "", limit: int = 50) -> list[dict[str, Any]]:
         with self.connect() as conn:
             rows = conn.execute(
                 """
                 SELECT order_number, public_token, customer_name, email, total_inr, item_count,
                        status, payment_method, payment_status, created_at
                 FROM orders
-                WHERE customer_id = ? OR LOWER(email) = ?
+                WHERE customer_id = ?
                 ORDER BY created_at DESC
                 LIMIT ?
                 """,
-                (customer_id, email, limit),
+                (customer_id, limit),
             ).fetchall()
         orders = [dict(row) for row in rows]
         for order in orders:
@@ -891,15 +1077,14 @@ class Database:
         return orders
 
     def get_customer_order(self, customer_id: int, email: str, order_number: str) -> dict[str, Any] | None:
-        email = str(email or "").strip().lower()
         with self.connect() as conn:
             row = conn.execute(
                 """
                 SELECT order_number
                 FROM orders
-                WHERE order_number = ? AND (customer_id = ? OR LOWER(email) = ?)
+                WHERE order_number = ? AND customer_id = ?
                 """,
-                (order_number, customer_id, email),
+                (order_number, customer_id),
             ).fetchone()
         if row is None:
             return None
@@ -1360,7 +1545,6 @@ class Database:
         return score if score >= threshold else 0.0
 
     def get_admin_summary(self) -> dict[str, int]:
-        self.expire_stale_reservations()
         with self.connect() as conn:
             active = conn.execute("SELECT COUNT(*) AS count FROM fragrances WHERE is_active = 1").fetchone()["count"]
             archived = conn.execute("SELECT COUNT(*) AS count FROM fragrances WHERE is_active = 0").fetchone()["count"]
@@ -2126,7 +2310,16 @@ class Database:
     def preview_order(self, items: list[dict[str, Any]]) -> dict[str, Any]:
         return self._build_checkout_snapshot(items)
 
-    def create_order(self, payload: dict[str, Any], customer_id: int | None = None) -> dict[str, Any]:
+    def create_order(
+        self,
+        payload: dict[str, Any],
+        customer_id: int | None = None,
+        idempotency_key: str = "",
+    ) -> dict[str, Any]:
+        idempotency_key = self._normalize_idempotency_key(idempotency_key)
+        existing = self.get_order_by_idempotency_key(idempotency_key)
+        if existing is not None:
+            return existing
         customer = payload.get("customer") or {}
         items = payload.get("items") or []
         self._validate_customer(customer)
@@ -2142,6 +2335,13 @@ class Database:
         with self.connect() as conn:
             try:
                 conn.begin_write()
+                existing_number = self._order_number_for_idempotency_key(conn, idempotency_key)
+                if existing_number:
+                    conn.rollback()
+                    existing = self.get_order(existing_number)
+                    if existing is None:
+                        raise ValidationError("Existing order could not be loaded.")
+                    return existing
                 self._deduct_stock(conn, snapshot["items"])
                 order_number = self._insert_order(
                     conn,
@@ -2162,10 +2362,14 @@ class Database:
                     stock_reserved=0,
                     reservation_expires_at="",
                     last_error="",
+                    idempotency_key=idempotency_key,
                 )
                 conn.commit()
             except Exception:
                 conn.rollback()
+                existing = self.get_order_by_idempotency_key(idempotency_key)
+                if existing is not None:
+                    return existing
                 raise
 
         order = self.get_order(order_number)
@@ -2180,7 +2384,12 @@ class Database:
         items: list[dict[str, Any]],
         gateway_order_id: str,
         customer_id: int | None = None,
+        idempotency_key: str = "",
     ) -> dict[str, Any]:
+        idempotency_key = self._normalize_idempotency_key(idempotency_key)
+        existing = self.get_order_by_idempotency_key(idempotency_key)
+        if existing is not None:
+            return existing
         self._validate_customer(customer)
         snapshot = self._build_checkout_snapshot(items)
         now = self._now()
@@ -2188,6 +2397,13 @@ class Database:
         with self.connect() as conn:
             try:
                 conn.begin_write()
+                existing_number = self._order_number_for_idempotency_key(conn, idempotency_key)
+                if existing_number:
+                    conn.rollback()
+                    existing = self.get_order(existing_number)
+                    if existing is None:
+                        raise ValidationError("Existing payment order could not be loaded.")
+                    return existing
                 self._deduct_stock(conn, snapshot["items"])
                 cursor_order_number = self._insert_order(
                     conn,
@@ -2208,10 +2424,14 @@ class Database:
                     stock_reserved=1,
                     reservation_expires_at=self._reservation_expires_at(now),
                     last_error="",
+                    idempotency_key=idempotency_key,
                 )
                 conn.commit()
             except Exception:
                 conn.rollback()
+                existing = self.get_order_by_idempotency_key(idempotency_key)
+                if existing is not None:
+                    return existing
                 raise
 
         order = self.get_order(cursor_order_number)
@@ -2391,7 +2611,6 @@ class Database:
                 raise
 
     def list_orders(self, limit: int = 100) -> list[dict[str, Any]]:
-        self.expire_stale_reservations()
         limit = max(1, int(limit or 100))
         with self.connect() as conn:
             rows = conn.execute(
@@ -2596,8 +2815,211 @@ class Database:
             )
             conn.commit()
 
+    def enqueue_order_notification(self, order_number: str, event_type: str) -> None:
+        if event_type not in {"order_received", "order_status"}:
+            raise ValidationError("Unsupported notification event.")
+        order = self.get_order(order_number)
+        if order is None:
+            raise ValidationError("Order not found for notification.")
+        marker = order.get("status_updated_at") or order.get("status") or "created"
+        dedupe_key = f"{event_type}:{order_number}:{marker}" if event_type == "order_status" else f"{event_type}:{order_number}"
+        now = self._now()
+        with self.connect() as conn:
+            if conn.dialect == "postgres":
+                conn.execute(
+                    """
+                    INSERT INTO notification_outbox
+                        (dedupe_key, event_type, order_number, status, attempts, available_at, created_at)
+                    VALUES (?, ?, ?, 'pending', 0, ?, ?)
+                    ON CONFLICT (dedupe_key) DO NOTHING
+                    """,
+                    (dedupe_key, event_type, order_number, now, now),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO notification_outbox
+                        (dedupe_key, event_type, order_number, status, attempts, available_at, created_at)
+                    VALUES (?, ?, ?, 'pending', 0, ?, ?)
+                    """,
+                    (dedupe_key, event_type, order_number, now, now),
+                )
+            conn.commit()
+
+    def claim_notification(self) -> dict[str, Any] | None:
+        now = self._now()
+        stale = (datetime.utcnow() - timedelta(minutes=10)).replace(microsecond=0).isoformat() + "Z"
+        with self.connect() as conn:
+            try:
+                conn.begin_write()
+                conn.execute(
+                    """
+                    UPDATE notification_outbox
+                    SET status = 'pending', locked_at = ''
+                    WHERE status = 'processing' AND locked_at != '' AND locked_at < ?
+                    """,
+                    (stale,),
+                )
+                query = """
+                    SELECT id, event_type, order_number, attempts
+                    FROM notification_outbox
+                    WHERE status = 'pending' AND available_at <= ?
+                    ORDER BY id ASC
+                    LIMIT 1
+                """
+                if conn.dialect == "postgres":
+                    query += " FOR UPDATE SKIP LOCKED"
+                row = conn.execute(query, (now,)).fetchone()
+                if row is None:
+                    conn.commit()
+                    return None
+                conn.execute(
+                    """
+                    UPDATE notification_outbox
+                    SET status = 'processing', locked_at = ?, attempts = attempts + 1
+                    WHERE id = ?
+                    """,
+                    (now, row["id"]),
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        event = dict(row)
+        event["order"] = self.get_order(event["order_number"])
+        return event
+
+    def complete_notification(self, notification_id: int, order_number: str, event_type: str) -> None:
+        now = self._now()
+        with self.connect() as conn:
+            try:
+                conn.begin_write()
+                conn.execute(
+                    """
+                    UPDATE notification_outbox
+                    SET status = 'sent', sent_at = ?, locked_at = '', last_error = ''
+                    WHERE id = ? AND status = 'processing'
+                    """,
+                    (now, notification_id),
+                )
+                marker_column = "notification_sent_at" if event_type == "order_received" else "status_notification_sent_at"
+                conn.execute(
+                    f"UPDATE orders SET {marker_column} = ? WHERE order_number = ?",
+                    (now, order_number),
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+    def retry_notification(self, notification_id: int, attempts: int, error: str) -> None:
+        delay_minutes = min(60, 2 ** min(max(1, attempts), 6))
+        available_at = (datetime.utcnow() + timedelta(minutes=delay_minutes)).replace(microsecond=0).isoformat() + "Z"
+        final_status = "failed" if attempts >= 8 else "pending"
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE notification_outbox
+                SET status = ?, available_at = ?, locked_at = '', last_error = ?
+                WHERE id = ?
+                """,
+                (final_status, available_at, str(error)[:500], notification_id),
+            )
+            conn.commit()
+
+    def enqueue_email_verification(self, customer: dict[str, Any], verification_url: str) -> None:
+        now = self._now()
+        dedupe_key = f"verification:{customer['id']}:{hashlib.sha256(verification_url.encode('utf-8')).hexdigest()}"
+        with self.connect() as conn:
+            insert_prefix = "INSERT" if conn.dialect == "postgres" else "INSERT OR IGNORE"
+            conflict_clause = " ON CONFLICT (dedupe_key) DO NOTHING" if conn.dialect == "postgres" else ""
+            conn.execute(
+                f"""
+                {insert_prefix} INTO account_email_outbox
+                    (dedupe_key, customer_id, recipient, full_name, verification_url,
+                     status, attempts, available_at, created_at)
+                VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?){conflict_clause}
+                """,
+                (
+                    dedupe_key,
+                    customer["id"],
+                    customer["email"],
+                    customer["full_name"],
+                    verification_url,
+                    now,
+                    now,
+                ),
+            )
+            conn.commit()
+
+    def claim_email_verification(self) -> dict[str, Any] | None:
+        now = self._now()
+        stale = (datetime.utcnow() - timedelta(minutes=10)).replace(microsecond=0).isoformat() + "Z"
+        with self.connect() as conn:
+            try:
+                conn.begin_write()
+                conn.execute(
+                    """
+                    UPDATE account_email_outbox
+                    SET status = 'pending', locked_at = ''
+                    WHERE status = 'processing' AND locked_at != '' AND locked_at < ?
+                    """,
+                    (stale,),
+                )
+                query = """
+                    SELECT id, recipient, full_name, verification_url, attempts
+                    FROM account_email_outbox
+                    WHERE status = 'pending' AND available_at <= ?
+                    ORDER BY id ASC
+                    LIMIT 1
+                """
+                if conn.dialect == "postgres":
+                    query += " FOR UPDATE SKIP LOCKED"
+                row = conn.execute(query, (now,)).fetchone()
+                if row is None:
+                    conn.commit()
+                    return None
+                conn.execute(
+                    """
+                    UPDATE account_email_outbox
+                    SET status = 'processing', locked_at = ?, attempts = attempts + 1
+                    WHERE id = ?
+                    """,
+                    (now, row["id"]),
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return dict(row)
+
+    def complete_email_verification(self, notification_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE account_email_outbox
+                SET status = 'sent', sent_at = ?, locked_at = '', last_error = ''
+                WHERE id = ? AND status = 'processing'
+                """,
+                (self._now(), notification_id),
+            )
+            conn.commit()
+
+    def retry_email_verification(self, notification_id: int, attempts: int, error: str) -> None:
+        delay_minutes = min(60, 2 ** min(max(1, attempts), 6))
+        available_at = (datetime.utcnow() + timedelta(minutes=delay_minutes)).replace(microsecond=0).isoformat() + "Z"
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE account_email_outbox
+                SET status = ?, available_at = ?, locked_at = '', last_error = ?
+                WHERE id = ?
+                """,
+                ("failed" if attempts >= 8 else "pending", available_at, str(error)[:500], notification_id),
+            )
+            conn.commit()
+
     def get_readiness_metrics(self) -> dict[str, int]:
-        self.expire_stale_reservations()
         with self.connect() as conn:
             fragrance_row = conn.execute(
                 """
@@ -2683,18 +3105,24 @@ class Database:
     def _build_checkout_snapshot(self, items: list[dict[str, Any]]) -> dict[str, Any]:
         if not items:
             raise ValidationError("Your cart is empty.")
-
-        self.expire_stale_reservations()
+        if not isinstance(items, list) or len(items) > 50:
+            raise ValidationError("A cart can contain at most 50 fragrance options.")
 
         with self.connect() as conn:
             normalized_items: list[dict[str, Any]] = []
             subtotal = 0
+            seen_variant_ids: set[int] = set()
 
             for item in items:
-                variant_id = int(item.get("variant_id", 0))
-                quantity = int(item.get("quantity", 0))
-                if quantity < 1:
-                    raise ValidationError("Every cart item must have quantity of at least 1.")
+                if not isinstance(item, dict):
+                    raise ValidationError("Every cart item must be an object.")
+                variant_id = self._checkout_integer(item.get("variant_id"), "Variant")
+                quantity = self._checkout_integer(item.get("quantity"), "Quantity")
+                if variant_id < 1 or quantity < 1 or quantity > 20:
+                    raise ValidationError("Every cart item needs a valid option and a quantity from 1 to 20.")
+                if variant_id in seen_variant_ids:
+                    raise ValidationError("Duplicate fragrance options are not allowed in the cart.")
+                seen_variant_ids.add(variant_id)
 
                 row = conn.execute(
                     """
@@ -2771,24 +3199,26 @@ class Database:
         stock_reserved: int,
         reservation_expires_at: str,
         last_error: str,
+        idempotency_key: str = "",
     ) -> str:
         order_number = self._generate_order_number(conn)
         public_token = self._generate_public_token(conn)
         conn.execute(
             """
             INSERT INTO orders (
-                customer_id, order_number, public_token, customer_name, email, phone, shipping_line1, shipping_line2,
+                customer_id, order_number, public_token, idempotency_key, customer_name, email, phone, shipping_line1, shipping_line2,
                 city, state, postal_code, country, payment_method, payment_gateway, payment_status,
                 gateway_order_id, gateway_payment_id, gateway_signature, payment_amount_inr,
                 delivery_notes, subtotal_inr, shipping_inr, total_inr, item_count, status,
                 stock_reserved, reservation_expires_at, initiated_at, paid_at, notification_sent_at,
                 last_error, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 customer_id,
                 order_number,
                 public_token,
+                idempotency_key,
                 customer["customer_name"],
                 customer["email"],
                 customer["phone"],
@@ -2981,6 +3411,8 @@ class Database:
         }
 
     def _validate_customer(self, customer: dict[str, Any]) -> None:
+        if not isinstance(customer, dict):
+            raise ValidationError("Customer details must be an object.")
         required_fields = [
             "customer_name",
             "email",
@@ -2995,38 +3427,70 @@ class Database:
             if not str(customer.get(field, "")).strip():
                 raise ValidationError(f"{field.replace('_', ' ').title()} is required.")
 
-        email = customer["email"].strip().lower()
+        field_limits = {
+            "customer_name": (2, 100),
+            "email": (5, 254),
+            "shipping_line1": (8, 200),
+            "shipping_line2": (0, 200),
+            "city": (2, 100),
+            "state": (2, 100),
+            "country": (2, 100),
+            "delivery_notes": (0, 500),
+        }
+        for field, (minimum, maximum) in field_limits.items():
+            default = self.settings.default_country if field == "country" else ""
+            value = str(customer.get(field, default)).strip()
+            if len(value) < minimum or len(value) > maximum:
+                label = field.replace("_", " ").title()
+                raise ValidationError(f"{label} must be between {minimum} and {maximum} characters.")
+
+        email = str(customer["email"]).strip().lower()
         if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
             raise ValidationError("Please enter a valid email address.")
 
-        phone = re.sub(r"\D+", "", customer["phone"])
-        if len(phone) < 10:
+        phone = re.sub(r"\D+", "", str(customer["phone"]))
+        if len(phone) < 10 or len(phone) > 15:
             raise ValidationError("Please enter a valid phone number.")
         customer["phone"] = phone
 
-        postal = re.sub(r"\s+", "", customer["postal_code"])
-        if len(postal) < 5:
+        postal = re.sub(r"\s+", "", str(customer["postal_code"]))
+        country = str(customer.get("country", self.settings.default_country)).strip() or self.settings.default_country
+        if country.lower() == "india" and not re.fullmatch(r"[1-9][0-9]{5}", postal):
+            raise ValidationError("Please enter a valid 6 digit Indian postal code.")
+        if country.lower() != "india" and not re.fullmatch(r"[A-Za-z0-9-]{5,12}", postal):
             raise ValidationError("Please enter a valid postal code.")
         customer["postal_code"] = postal
 
-        customer["customer_name"] = customer["customer_name"].strip()
+        customer["customer_name"] = str(customer["customer_name"]).strip()
         customer["email"] = email
-        customer["shipping_line1"] = customer["shipping_line1"].strip()
+        customer["shipping_line1"] = str(customer["shipping_line1"]).strip()
         customer["shipping_line2"] = str(customer.get("shipping_line2", "")).strip()
-        customer["city"] = customer["city"].strip()
-        customer["state"] = customer["state"].strip()
-        customer["country"] = (
-            str(customer.get("country", self.settings.default_country)).strip() or self.settings.default_country
-        )
+        customer["city"] = str(customer["city"]).strip()
+        customer["state"] = str(customer["state"]).strip()
+        customer["country"] = country
         customer["delivery_notes"] = str(customer.get("delivery_notes", "")).strip()
-        customer["payment_method"] = customer["payment_method"].strip()
+        customer["payment_method"] = str(customer["payment_method"]).strip()
         if customer["payment_method"] not in {"Cash on Delivery", "UPI", "Netbanking", "Credit/Debit Card"}:
             raise ValidationError("Unsupported payment method.")
+
+    def _checkout_integer(self, value: Any, label: str) -> int:
+        if isinstance(value, bool):
+            raise ValidationError(f"{label} must be a whole number.")
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            if not value.is_integer():
+                raise ValidationError(f"{label} must be a whole number.")
+            return int(value)
+        clean = str(value or "").strip()
+        if not re.fullmatch(r"[0-9]+", clean):
+            raise ValidationError(f"{label} must be a whole number.")
+        return int(clean)
 
     def _generate_order_number(self, conn: DatabaseConnection) -> str:
         while True:
             stamp = datetime.utcnow().strftime("%Y%m%d")
-            suffix = random.randint(1000, 9999)
+            suffix = secrets.token_hex(6).upper()
             order_number = f"{self.settings.order_prefix}-{stamp}-{suffix}"
             exists = conn.execute(
                 "SELECT 1 FROM orders WHERE order_number = ? LIMIT 1",
@@ -3034,6 +3498,31 @@ class Database:
             ).fetchone()
             if not exists:
                 return order_number
+
+    def _normalize_idempotency_key(self, value: str) -> str:
+        key = str(value or "").strip()
+        if len(key) > 128:
+            raise ValidationError("Idempotency key is too long.")
+        return key
+
+    def _order_number_for_idempotency_key(
+        self, conn: DatabaseConnection, idempotency_key: str
+    ) -> str:
+        if not idempotency_key:
+            return ""
+        row = conn.execute(
+            "SELECT order_number FROM orders WHERE idempotency_key = ? LIMIT 1",
+            (idempotency_key,),
+        ).fetchone()
+        return str(row["order_number"]) if row else ""
+
+    def get_order_by_idempotency_key(self, idempotency_key: str) -> dict[str, Any] | None:
+        idempotency_key = self._normalize_idempotency_key(idempotency_key)
+        if not idempotency_key:
+            return None
+        with self.connect() as conn:
+            order_number = self._order_number_for_idempotency_key(conn, idempotency_key)
+        return self.get_order(order_number) if order_number else None
 
     def _reservation_expires_at(self, now: str | None = None) -> str:
         base = datetime.utcnow()

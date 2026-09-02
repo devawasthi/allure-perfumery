@@ -31,7 +31,9 @@
     {% if preview_label %}
       <div class="preview-badge">{{ preview_label }}</div>
     {% endif %}
-    <a class="floating-concierge" href="/#scent-concierge">Concierge</a>
+    {% if current_path == '/' and concierge.enabled %}
+      <a class="floating-concierge" href="/#scent-concierge">Concierge</a>
+    {% endif %}
     <div class="page-shell"></div>
     <header class="site-header">
       <div class="nav-wrap">
@@ -41,7 +43,11 @@
             <span class="brand-logo__name">Scentist</span>
           </span>
         </a>
-        <nav class="nav-links" aria-label="Primary">
+        <button class="mobile-menu-toggle" type="button" data-mobile-menu-toggle aria-controls="primary-navigation" aria-expanded="false">
+          <span></span><span></span><span></span>
+          <span class="sr-only">Open menu</span>
+        </button>
+        <nav class="nav-links" id="primary-navigation" aria-label="Primary">
           {% for link in nav_links %}
             {% set is_active = current_path == link.href or (link.href != '/' and current_path.startswith(link.href)) %}
             <div class="nav-item {% if link.children %}nav-item--dropdown{% endif %} {% if link.mega %}nav-item--mega{% endif %}">
@@ -68,8 +74,9 @@
                     <section class="nav-mega__group">
                       <div class="nav-mega__heading">
                         <span>Designer</span>
-                        <small>{{ nav_brand_groups.designer|length }} houses</small>
+                        <small>{{ nav_brand_totals.designer }} houses</small>
                       </div>
+                      <a class="nav-mega__all" href="/catalog?collection_type=designer">View all designer houses</a>
                       <div class="nav-mega__links nav-mega__links--designer">
                         {% for brand in nav_brand_groups.designer %}
                           <a href="{{ brand.href }}">
@@ -82,8 +89,9 @@
                     <section class="nav-mega__group">
                       <div class="nav-mega__heading">
                         <span>Niche</span>
-                        <small>{{ nav_brand_groups.niche|length }} houses</small>
+                        <small>{{ nav_brand_totals.niche }} houses</small>
                       </div>
+                      <a class="nav-mega__all" href="/catalog?collection_type=niche">View all niche houses</a>
                       <div class="nav-mega__links nav-mega__links--niche">
                         {% for brand in nav_brand_groups.niche %}
                           <a href="{{ brand.href }}">

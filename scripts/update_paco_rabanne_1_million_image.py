@@ -8,7 +8,7 @@ import sqlite3
 from pathlib import Path
 
 
-IMAGE_URL = "/assets/paco-rabanne-1-million.png"
+IMAGE_URL = "/assets/paco-rabanne-1-million.webp"
 WHERE_SQLITE = "lower(brand) = 'paco rabanne' AND lower(name) LIKE ?"
 WHERE_POSTGRES = "lower(brand) = 'paco rabanne' AND lower(name) LIKE %s"
 NAME_PATTERN = "%1 million%"

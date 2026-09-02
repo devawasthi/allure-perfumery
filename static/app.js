@@ -243,7 +243,23 @@ function renderCartSummary(items, subtotalNode, shippingNode, totalNode) {
 
 function imageMarkup(item, className = "fragrance-thumb") {
   const imageUrl = item.photo_icon_url || item.image_url;
-  return `<img class="${className}" src="${imageUrl}" alt="${item.brand} ${item.name}" loading="lazy" />`;
+  return `<img class="${escapeHtml(className)}" src="${escapeHtml(imageUrl)}" alt="${escapeHtml(
+    `${item.brand} ${item.name}`
+  )}" loading="lazy" />`;
+}
+
+function checkoutIdempotencyKey() {
+  const storageKey = "the-scentist-checkout-idempotency";
+  let key = window.sessionStorage.getItem(storageKey);
+  if (!key) {
+    key = window.crypto?.randomUUID?.() || `checkout-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    window.sessionStorage.setItem(storageKey, key);
+  }
+  return key;
+}
+
+function clearCheckoutIdempotencyKey() {
+  window.sessionStorage.removeItem("the-scentist-checkout-idempotency");
 }
 
 function mountConcierge() {
@@ -386,8 +402,8 @@ async function mountCartPage() {
           <article class="cart-item">
             ${imageMarkup(item, "fragrance-thumb fragrance-thumb--cart")}
             <div class="cart-item__body">
-              <strong>${item.brand} ${item.name}</strong>
-              <p>${item.size_label} - ${item.sale_type.replace(/_/g, " ")}</p>
+              <strong>${escapeHtml(item.brand)} ${escapeHtml(item.name)}</strong>
+              <p>${escapeHtml(item.size_label)} - ${escapeHtml(item.sale_type.replace(/_/g, " "))}</p>
               <div class="qty-control">
                 <button type="button" data-cart-change="-1" data-variant-id="${item.variant_id}">-</button>
                 <span>${item.quantity}</span>
@@ -450,10 +466,10 @@ async function mountCheckoutPage() {
             ${imageMarkup(item, "fragrance-thumb fragrance-thumb--line")}
             <div class="checkout-line__content">
               <div class="checkout-line__top">
-                <strong>${item.brand} ${item.name}</strong>
+                <strong>${escapeHtml(item.brand)} ${escapeHtml(item.name)}</strong>
                 <strong class="checkout-line__price">${money(item.line_total)}</strong>
               </div>
-              <p>${item.size_label} - Qty ${item.quantity}</p>
+              <p>${escapeHtml(item.size_label)} - Qty ${Number(item.quantity)}</p>
             </div>
           </div>
         `
@@ -646,6 +662,7 @@ async function mountCheckoutPage() {
       items: readCart(),
       totals,
     };
+    const idempotencyKey = checkoutIdempotencyKey();
 
     submitButton.disabled = true;
     const isOnlinePayment = onlinePaymentMethods.has(customer.payment_method);
@@ -661,6 +678,7 @@ async function mountCheckoutPage() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey,
           },
           body: JSON.stringify(payload),
         });
@@ -709,6 +727,7 @@ async function mountCheckoutPage() {
                 }),
               });
               writeCart([]);
+              clearCheckoutIdempotencyKey();
               window.location.assign(verification.order.public_path || `/order/${verification.order.order_number}`);
             } catch (error) {
               setStatus(error.message, true);
@@ -736,6 +755,7 @@ async function mountCheckoutPage() {
             // The admin order list will still show the pending order if this update fails.
           }
           setStatus(`${description} The reserved stock has been released; please try checkout again.`, true);
+          clearCheckoutIdempotencyKey();
           submitButton.disabled = false;
         });
 
@@ -747,11 +767,13 @@ async function mountCheckoutPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
         },
         body: JSON.stringify(payload),
       });
 
       writeCart([]);
+      clearCheckoutIdempotencyKey();
       window.location.assign(result.order.public_path || `/order/${result.order.order_number}`);
     } catch (error) {
       setStatus(error.message, true);
@@ -797,6 +819,7 @@ function mountGatewayTilt() {
 }
 
 function mountCustomSelects() {
+  if (window.matchMedia("(max-width: 760px), (pointer: coarse)").matches) return;
   document.querySelectorAll("select[data-custom-select]").forEach((select, index) => {
     if (select.dataset.customSelectMounted === "true") return;
     const shell = select.closest(".select-shell");
@@ -888,7 +911,29 @@ function mountCustomSelects() {
     button.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
         close();
+      } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        custom.classList.add("is-open");
+        button.setAttribute("aria-expanded", "true");
+        const options = Array.from(list.querySelectorAll(".custom-select__option:not(:disabled)"));
+        const selected = options.find((option) => option.getAttribute("aria-selected") === "true");
+        (selected || options[0])?.focus();
       }
+    });
+
+    list.addEventListener("keydown", (event) => {
+      if (!["ArrowDown", "ArrowUp", "Home", "End", "Escape"].includes(event.key)) return;
+      event.preventDefault();
+      if (event.key === "Escape") {
+        close();
+        button.focus();
+        return;
+      }
+      const options = Array.from(list.querySelectorAll(".custom-select__option:not(:disabled)"));
+      const current = Math.max(0, options.indexOf(document.activeElement));
+      const next = event.key === "Home" ? 0 : event.key === "End" ? options.length - 1 :
+        (current + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length;
+      options[next]?.focus();
     });
 
     select.addEventListener("change", syncLabel);
@@ -903,6 +948,21 @@ function mountCustomSelects() {
       node.classList.remove("is-open");
       node.querySelector(".custom-select__button")?.setAttribute("aria-expanded", "false");
     });
+  });
+}
+
+function mountMobileMenu() {
+  const header = document.querySelector(".site-header");
+  const toggle = header?.querySelector("[data-mobile-menu-toggle]");
+  if (!header || !toggle) return;
+  const setOpen = (open) => {
+    header.classList.toggle("is-mobile-menu-open", open);
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    toggle.querySelector(".sr-only").textContent = open ? "Close menu" : "Open menu";
+  };
+  toggle.addEventListener("click", () => setOpen(!header.classList.contains("is-mobile-menu-open")));
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") setOpen(false);
   });
 }
 
@@ -1299,6 +1359,7 @@ document.addEventListener("click", (event) => {
 updateCartCount();
 updateWishlistButtons();
 mountThemeToggle();
+mountMobileMenu();
 mountReveals();
 mountGatewayTilt();
 mountConcierge();

@@ -8,7 +8,7 @@ import sqlite3
 from pathlib import Path
 
 
-IMAGE_URL = "/assets/paco-rabanne-1-million-golden-oud.png"
+IMAGE_URL = "/assets/paco-rabanne-1-million-golden-oud.webp"
 WHERE_SQL = "lower(brand) = 'paco rabanne' AND lower(name) = '1 million golden oud parfum intense'"
 
 

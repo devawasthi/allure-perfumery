@@ -65,6 +65,13 @@ services:
         sync: false
       - key: PAYMENT_RESERVATION_MINUTES
         value: "30"
+      - key: APP_SECRET_KEY
+        generateValue: true
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: the-scentist-cache
+          property: connectionString
       - key: ADMIN_TOKEN
         sync: false
       - key: ADMIN_EMAIL
@@ -87,3 +94,41 @@ services:
         sync: false
       - key: OPENAI_MODEL
         value: gpt-4.1-mini
+
+  - type: worker
+    name: the-scentist-worker
+    runtime: docker
+    plan: starter
+    dockerCommand: python worker.py
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_POOL_MIN_SIZE
+        value: "1"
+      - key: DATABASE_POOL_MAX_SIZE
+        value: "3"
+      - key: PAYMENT_RESERVATION_MINUTES
+        value: "30"
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: NOTIFICATION_FROM_EMAIL
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_USE_TLS
+        value: "true"
+
+  - type: keyvalue
+    name: the-scentist-cache
+    plan: starter
+    region: singapore
+    ipAllowList: []
+    maxmemoryPolicy: noeviction

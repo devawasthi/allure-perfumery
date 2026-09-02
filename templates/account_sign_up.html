@@ -18,6 +18,7 @@
             value="{{ form.full_name or '' }}"
             autocomplete="name"
             minlength="2"
+            maxlength="100"
             required
           />
         </label>
@@ -29,16 +30,17 @@
             value="{{ form.email or '' }}"
             autocomplete="email"
             inputmode="email"
+            maxlength="254"
             required
           />
         </label>
         <label>
           Password
-          <input type="password" name="password" autocomplete="new-password" minlength="8" required />
+          <input type="password" name="password" autocomplete="new-password" minlength="8" maxlength="128" required />
         </label>
         <label>
           Confirm password
-          <input type="password" name="confirm_password" autocomplete="new-password" minlength="8" required />
+          <input type="password" name="confirm_password" autocomplete="new-password" minlength="8" maxlength="128" required />
         </label>
         {% if error %}
           <p class="checkout-form__status is-error">{{ error }}</p>

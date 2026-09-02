@@ -9,9 +9,27 @@
 
   <section class="account-toolbar">
     <form action="/account/sign-out" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <button class="button button--ghost" type="submit">Sign out</button>
     </form>
   </section>
+
+  {% if not email_verified %}
+    <section class="order-card order-card--full account-verification" aria-live="polite">
+      <p class="section-kicker">Secure your account</p>
+      <h2>Verify your email to view order history</h2>
+      <p>We sent a private verification link to {{ current_customer.email }}. Guest orders are connected only after that address is verified.</p>
+      {% if verification_status == "sent" %}<p class="checkout-form__status is-success">A fresh verification link has been sent.</p>{% endif %}
+      {% if verification_status in ["invalid", "required"] %}<p class="checkout-form__status is-error">That verification link is invalid or expired. Request a fresh one below.</p>{% endif %}
+      {% if local_verification_url %}
+        <a class="button" href="{{ local_verification_url }}">Verify email in local preview</a>
+      {% endif %}
+      <form action="/account/resend-verification" method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        <button class="button button--ghost" type="submit">Resend verification email</button>
+      </form>
+    </section>
+  {% else %}
 
   <section class="order-card order-card--full">
     <div class="section-heading">
@@ -47,4 +65,5 @@
       {% endfor %}
     </div>
   </section>
+  {% endif %}
 {% endblock %}

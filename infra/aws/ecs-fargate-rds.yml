@@ -90,6 +90,28 @@ Parameters:
     AllowedValues:
       - "true"
       - "false"
+  CacheNodeType:
+    Type: String
+    Default: cache.t4g.small
+  AdminEmail:
+    Type: String
+    Default: ""
+  NotificationFromEmail:
+    Type: String
+    Default: ""
+  SmtpHost:
+    Type: String
+    Default: ""
+  SmtpPort:
+    Type: Number
+    Default: 587
+  SmtpUsername:
+    Type: String
+    Default: ""
+  SmtpPasswordSecretArn:
+    Type: String
+    Default: ""
+    Description: Optional Secrets Manager secret ARN containing the SMTP password as a plain string.
   EnableManualCheckout:
     Type: String
     Default: "true"
@@ -149,6 +171,7 @@ Conditions:
   HasRazorpayKeyIdSecret: !Not [!Equals [!Ref RazorpayKeyIdSecretArn, ""]]
   HasRazorpayKeySecretSecret: !Not [!Equals [!Ref RazorpayKeySecretSecretArn, ""]]
   HasRazorpayWebhookSecretSecret: !Not [!Equals [!Ref RazorpayWebhookSecretSecretArn, ""]]
+  HasSmtpPasswordSecret: !Not [!Equals [!Ref SmtpPasswordSecretArn, ""]]
 
 Resources:
   VPC:
@@ -364,6 +387,41 @@ Resources:
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
 
+  CacheSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Redis access from ECS tasks
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          SourceSecurityGroupId: !Ref ServiceSecurityGroup
+
+  CacheSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      Description: Private subnets for the storefront Redis cache
+      SubnetIds:
+        - !Ref PrivateSubnetOne
+        - !Ref PrivateSubnetTwo
+
+  Cache:
+    Type: AWS::ElastiCache::ReplicationGroup
+    Properties:
+      ReplicationGroupDescription: !Sub Redis rate limits for ${AppName} ${EnvironmentName}
+      AtRestEncryptionEnabled: true
+      TransitEncryptionEnabled: true
+      AutomaticFailoverEnabled: true
+      MultiAZEnabled: true
+      CacheNodeType: !Ref CacheNodeType
+      CacheSubnetGroupName: !Ref CacheSubnetGroup
+      Engine: redis
+      NumNodeGroups: 1
+      ReplicasPerNodeGroup: 1
+      SecurityGroupIds:
+        - !Ref CacheSecurityGroup
+
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
@@ -446,6 +504,14 @@ Resources:
         PasswordLength: 30
         ExcludePunctuation: true
 
+  AppRuntimeSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub ${AppName}/${EnvironmentName}/runtime
+      GenerateSecretString:
+        PasswordLength: 48
+        ExcludePunctuation: true
+
   DatabaseSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
@@ -523,6 +589,7 @@ Resources:
                   - secretsmanager:GetSecretValue
                 Resource:
                   - !Ref DatabaseCredentialsSecret
+                  - !Ref AppRuntimeSecret
                   - !If
                     - HasRazorpayKeyIdSecret
                     - !Ref RazorpayKeyIdSecretArn
@@ -534,6 +601,10 @@ Resources:
                   - !If
                     - HasRazorpayWebhookSecretSecret
                     - !Ref RazorpayWebhookSecretSecretArn
+                    - !Ref AWS::NoValue
+                  - !If
+                    - HasSmtpPasswordSecret
+                    - !Ref SmtpPasswordSecretArn
                     - !Ref AWS::NoValue
               - Effect: Allow
                 Action:
@@ -628,9 +699,23 @@ Resources:
               Value: !Ref DbUsername
             - Name: DB_SSLMODE
               Value: require
+            - Name: REDIS_URL
+              Value: !Sub rediss://${Cache.PrimaryEndPoint.Address}:6379/0
+            - Name: ADMIN_EMAIL
+              Value: !Ref AdminEmail
+            - Name: NOTIFICATION_FROM_EMAIL
+              Value: !Ref NotificationFromEmail
+            - Name: SMTP_HOST
+              Value: !Ref SmtpHost
+            - Name: SMTP_PORT
+              Value: !Sub "${SmtpPort}"
+            - Name: SMTP_USERNAME
+              Value: !Ref SmtpUsername
           Secrets:
             - Name: DB_PASSWORD
               ValueFrom: !Sub "${DatabaseCredentialsSecret}:password::"
+            - Name: APP_SECRET_KEY
+              ValueFrom: !Ref AppRuntimeSecret
             - !If
               - HasRazorpayKeyIdSecret
               - Name: RAZORPAY_KEY_ID
@@ -646,11 +731,62 @@ Resources:
               - Name: RAZORPAY_WEBHOOK_SECRET
                 ValueFrom: !Ref RazorpayWebhookSecretSecretArn
               - !Ref AWS::NoValue
+            - !If
+              - HasSmtpPasswordSecret
+              - Name: SMTP_PASSWORD
+                ValueFrom: !Ref SmtpPasswordSecretArn
+              - !Ref AWS::NoValue
+        - Name: worker
+          Image: !Ref ImageUri
+          Essential: true
+          Command:
+            - python
+            - worker.py
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref AppLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: worker
+          Environment:
+            - Name: APP_ENV
+              Value: production
+            - Name: DB_HOST
+              Value: !GetAtt Database.Endpoint.Address
+            - Name: DB_PORT
+              Value: !Join ["", [!GetAtt Database.Endpoint.Port, ""]]
+            - Name: DB_NAME
+              Value: !Ref DbName
+            - Name: DB_USER
+              Value: !Ref DbUsername
+            - Name: DB_SSLMODE
+              Value: require
+            - Name: REDIS_URL
+              Value: !Sub rediss://${Cache.PrimaryEndPoint.Address}:6379/0
+            - Name: ADMIN_EMAIL
+              Value: !Ref AdminEmail
+            - Name: NOTIFICATION_FROM_EMAIL
+              Value: !Ref NotificationFromEmail
+            - Name: SMTP_HOST
+              Value: !Ref SmtpHost
+            - Name: SMTP_PORT
+              Value: !Sub "${SmtpPort}"
+            - Name: SMTP_USERNAME
+              Value: !Ref SmtpUsername
+          Secrets:
+            - Name: DB_PASSWORD
+              ValueFrom: !Sub "${DatabaseCredentialsSecret}:password::"
+            - !If
+              - HasSmtpPasswordSecret
+              - Name: SMTP_PASSWORD
+                ValueFrom: !Ref SmtpPasswordSecretArn
+              - !Ref AWS::NoValue
 
   EcsService:
     Type: AWS::ECS::Service
     DependsOn:
       - Database
+      - Cache
     Properties:
       ServiceName: !Sub ${AppName}-${EnvironmentName}-service
       Cluster: !Ref EcsCluster
@@ -733,3 +869,5 @@ Outputs:
     Value: !GetAtt Database.Endpoint.Port
   DatabasePasswordSecretArn:
     Value: !Ref DatabaseCredentialsSecret
+  RedisEndpoint:
+    Value: !GetAtt Cache.PrimaryEndPoint.Address

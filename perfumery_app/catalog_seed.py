@@ -111,7 +111,7 @@ BASE_FRAGRANCES = [
         "A boardroom icon with bright fruit, smoky woods, and polished masculinity.",
         ("#d4b273", "#2f2823"),
         featured=True,
-        image_url="/assets/creed-aventus.png",
+        image_url="/assets/creed-aventus.webp",
         sale_plan=SIGNATURE_NICHE,
     ),
     fragrance(
@@ -491,7 +491,7 @@ BASE_FRAGRANCES = [
         ("#4e6d85", "#171f2a"),
         concentration="Parfum",
         featured=True,
-        image_url="/assets/bleu-de-chanel-parfum.png",
+        image_url="/assets/bleu-de-chanel-parfum.webp",
         sale_plan=DESIGNER_INTENSE,
     ),
     fragrance(

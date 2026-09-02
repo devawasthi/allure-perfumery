@@ -205,6 +205,15 @@
         </div>
       </div>
 
+      {% if active_filter_chips %}
+        <div class="catalog-filter-chips" aria-label="Active filters">
+          {% for chip in active_filter_chips %}
+            <a href="{{ chip.href }}">{{ chip.label }} <span aria-hidden="true">&times;</span></a>
+          {% endfor %}
+          <a class="catalog-filter-chips__clear" href="/catalog">Clear all</a>
+        </div>
+      {% endif %}
+
       {% if catalog_items %}
         <div class="product-grid">
           {% for item in catalog_items %}
@@ -218,6 +227,17 @@
             {% else %}
               <span></span>
             {% endif %}
+            <div class="catalog-pagination__pages">
+              {% for item in pagination.pages %}
+                {% if item.ellipsis %}
+                  <span aria-hidden="true">...</span>
+                {% elif item.current %}
+                  <span class="is-current" aria-current="page">{{ item.number }}</span>
+                {% else %}
+                  <a href="{{ item.href }}" aria-label="Page {{ item.number }}">{{ item.number }}</a>
+                {% endif %}
+              {% endfor %}
+            </div>
             {% if pagination.has_next %}
               <a class="button button--ghost" href="{{ pagination.next_href }}">Next</a>
             {% else %}

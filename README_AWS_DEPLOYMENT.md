@@ -7,8 +7,10 @@ This repo now has an AWS-first deployment path based on:
 - Amazon ECS on AWS Fargate
 - Application Load Balancer
 - Amazon RDS for PostgreSQL
+- Amazon ElastiCache for Redis with Multi-AZ failover
 - Amazon ECR
 - AWS Secrets Manager
+- A sidecar worker for notification delivery and reservation cleanup
 - AWS CloudFormation
 
 This is the safer long-term choice for the storefront right now.
@@ -127,6 +129,9 @@ That updates the ECS service to the new task definition.
 ## Operational Notes
 
 - The stack creates the database password secret for you automatically.
+- The stack creates a 48-character application signing secret automatically.
+- Redis is private, encrypted in transit and at rest, and only accepts ECS task traffic.
+- Each ECS task runs the web container and an outbox worker; database locks prevent duplicate delivery across tasks.
 - The ECS service runs in private subnets behind a public ALB.
 - The database is private and only accepts traffic from the ECS service security group.
 - ECS task auto scaling is enabled on CPU and memory.

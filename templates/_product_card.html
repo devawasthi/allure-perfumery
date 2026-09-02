@@ -37,6 +37,15 @@
         <strong>{% if item.has_price_range %}{{ item.starting_price|money }} - {{ item.ending_price|money }}{% else %}{{ item.starting_price|money }}{% endif %}</strong>
       </div>
       <div class="product-card__actions">
+        {% if item.quick_add_variant %}
+          <button
+            class="button button--ghost product-card__quick-add"
+            type="button"
+            data-add-to-cart
+            data-variant-id="{{ item.quick_add_variant.id }}"
+            data-item-label="{{ item.brand }} {{ item.name }} {{ item.quick_add_variant.size_label }}"
+          >{% if item.quick_add_variant.sale_type == 'decant' %}Add {{ item.quick_add_variant.size_label }}{% else %}Quick add{% endif %}</button>
+        {% endif %}
         <a class="button product-card__view" href="/fragrances/{{ item.slug }}">View options</a>
       </div>
     </div>
